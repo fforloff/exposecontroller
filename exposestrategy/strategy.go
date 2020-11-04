@@ -6,16 +6,14 @@ import (
 	"github.com/golang/glog"
 	"github.com/pkg/errors"
 
-	oclient "github.com/openshift/origin/pkg/client"
-	"k8s.io/kubernetes/pkg/api"
-	"k8s.io/kubernetes/pkg/client/restclient"
-	client "k8s.io/kubernetes/pkg/client/unversioned"
-	"k8s.io/kubernetes/pkg/runtime"
+	"k8s.io/api/core/v1"
+	"k8s.io/client-go/kubernetes"
+	"k8s.io/client-go/rest"
 )
 
 type ExposeStrategy interface {
-	Add(svc *api.Service) error
-	Remove(svc *api.Service) error
+	Add(svc *v1.Service) error
+	Remove(svc *v1.Service) error
 }
 
 type Label struct {
@@ -33,46 +31,35 @@ var (
 	ApiServicePathAnnotationKey   = "api.service.kubernetes.io/path"
 )
 
-func New(exposer, domain, internalDomain, urltemplate, nodeIP, routeHost, pathMode string, routeUsePath, http, tlsAcme bool, tlsSecretName string, tlsUseWildcard bool, ingressClass string, client *client.Client, restClientConfig *restclient.Config, encoder runtime.Encoder) (ExposeStrategy, error) {
+func New(exposer, domain, internalDomain, urltemplate, nodeIP, pathMode string, http, tlsAcme bool, tlsSecretName string, tlsUseWildcard bool, ingressClass string, client kubernetes.Interface, restClientConfig *rest.Config) (ExposeStrategy, error) {
 	switch strings.ToLower(exposer) {
 	case "ambassador":
-		strategy, err := NewAmbassadorStrategy(client, encoder, domain, http, tlsAcme, tlsSecretName, urltemplate, pathMode)
+		strategy, err := NewAmbassadorStrategy(client, domain, http, tlsAcme, tlsSecretName, urltemplate, pathMode)
 		if err != nil {
 			return nil, errors.Wrap(err, "failed to create ambassador expose strategy")
 		}
 		return strategy, nil
 	case "loadbalancer":
-		strategy, err := NewLoadBalancerStrategy(client, encoder)
+		strategy, err := NewLoadBalancerStrategy(client)
 		if err != nil {
 			return nil, errors.Wrap(err, "failed to create load balancer expose strategy")
 		}
 		return strategy, nil
 	case "nodeport":
-		strategy, err := NewNodePortStrategy(client, encoder, nodeIP)
+		strategy, err := NewNodePortStrategy(client, nodeIP)
 		if err != nil {
 			return nil, errors.Wrap(err, "failed to create node port expose strategy")
 		}
 		return strategy, nil
 	case "ingress":
 		glog.Infof("stratagy.New %v", http)
-		strategy, err := NewIngressStrategy(client, encoder, domain, internalDomain, http, tlsAcme, tlsSecretName, tlsUseWildcard, urltemplate, pathMode, ingressClass)
-		if err != nil {
-			return nil, errors.Wrap(err, "failed to create ingress expose strategy")
-		}
-		return strategy, nil
-	case "route":
-		ocfg := *restClientConfig
-		ocfg.APIPath = ""
-		ocfg.GroupVersion = nil
-		ocfg.NegotiatedSerializer = nil
-		oc, _ := oclient.New(&ocfg)
-		strategy, err := NewRouteStrategy(client, oc, encoder, domain, routeHost, routeUsePath, http)
+		strategy, err := NewIngressStrategy(client, domain, internalDomain, http, tlsAcme, tlsSecretName, tlsUseWildcard, urltemplate, pathMode, ingressClass)
 		if err != nil {
 			return nil, errors.Wrap(err, "failed to create ingress expose strategy")
 		}
 		return strategy, nil
 	case "":
-		strategy, err := NewAutoStrategy(exposer, domain, internalDomain, urltemplate, nodeIP, routeHost, pathMode, routeUsePath, http, tlsAcme, tlsSecretName, tlsUseWildcard, ingressClass, client, restClientConfig, encoder)
+		strategy, err := NewAutoStrategy(exposer, domain, internalDomain, urltemplate, nodeIP, pathMode, http, tlsAcme, tlsSecretName, tlsUseWildcard, ingressClass, client, restClientConfig)
 		if err != nil {
 			return nil, errors.Wrap(err, "failed to create auto expose strategy")
 		}

@@ -7,7 +7,7 @@ import (
 
 	"github.com/golang/glog"
 	"github.com/pkg/errors"
-	"gopkg.in/v2/yaml"
+	yaml "gopkg.in/yaml.v2"
 )
 
 func LoadFile(path string) (*Config, bool, error) {
@@ -52,8 +52,6 @@ type Config struct {
 	PathMode              string   `yaml:"path-mode" json:"path_mode"`
 	ApiServer             string   `yaml:"apiserver,omitempty" json:"api_server"`
 	NodeIP                string   `yaml:"node-ip,omitempty" json:"node_ip"`
-	RouteHost             string   `yaml:"route-host,omitempty" json:"route_host"`
-	RouteUsePath          bool     `yaml:"route-use-path,omitempty" json:"route_use_path"`
 	ConsoleURL            string   `yaml:"console-url,omitempty" json:"console_url"`
 	AuthorizePath         string   `yaml:"authorize-path,omitempty" json:"authorize_path"`
 	ApiServerProtocol     string   `yaml:"apiserver-protocol" json:"api_server_protocol"`

@@ -3,20 +3,18 @@ package exposestrategy
 import (
 	"fmt"
 	"net"
-	"reflect"
 	"strconv"
 
 	"github.com/pkg/errors"
 
-	"k8s.io/kubernetes/pkg/api"
-	"k8s.io/kubernetes/pkg/api/v1"
-	client "k8s.io/kubernetes/pkg/client/unversioned"
-	"k8s.io/kubernetes/pkg/runtime"
+	"k8s.io/api/core/v1"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/types"
+	"k8s.io/client-go/kubernetes"
 )
 
 type NodePortStrategy struct {
-	client  *client.Client
-	encoder runtime.Encoder
+	client  kubernetes.Interface
 
 	nodeIP string
 }
@@ -25,10 +23,10 @@ var _ ExposeStrategy = &NodePortStrategy{}
 
 const ExternalIPLabel = "fabric8.io/externalIP"
 
-func NewNodePortStrategy(client *client.Client, encoder runtime.Encoder, nodeIP string) (*NodePortStrategy, error) {
+func NewNodePortStrategy(client kubernetes.Interface, nodeIP string) (*NodePortStrategy, error) {
 	ip := nodeIP
 	if len(ip) == 0 {
-		l, err := client.Nodes().List(api.ListOptions{})
+		l, err := client.CoreV1().Nodes().List(metav1.ListOptions{})
 		if err != nil {
 			return nil, errors.Wrap(err, "failed to list nodes")
 		}
@@ -51,43 +49,31 @@ func NewNodePortStrategy(client *client.Client, encoder runtime.Encoder, nodeIP 
 	return &NodePortStrategy{
 		client:  client,
 		nodeIP:  ip,
-		encoder: encoder,
 	}, nil
 }
 
 // getNodeHostIP returns the provided node's IP, based on the priority:
 // 1. NodeExternalIP
-// 2. NodeLegacyHostIP
-// 3. NodeInternalIP
-func getNodeHostIP(node api.Node) (net.IP, error) {
+// 2. NodeInternalIP
+func getNodeHostIP(node v1.Node) (net.IP, error) {
 	addresses := node.Status.Addresses
-	addressMap := make(map[api.NodeAddressType][]api.NodeAddress)
+	addressMap := make(map[v1.NodeAddressType][]v1.NodeAddress)
 	for i := range addresses {
 		addressMap[addresses[i].Type] = append(addressMap[addresses[i].Type], addresses[i])
 	}
-	if addresses, ok := addressMap[api.NodeExternalIP]; ok {
+	if addresses, ok := addressMap[v1.NodeExternalIP]; ok {
 		return net.ParseIP(addresses[0].Address), nil
 	}
-	if addresses, ok := addressMap[api.NodeLegacyHostIP]; ok {
-		return net.ParseIP(addresses[0].Address), nil
-	}
-	if addresses, ok := addressMap[api.NodeInternalIP]; ok {
+	if addresses, ok := addressMap[v1.NodeInternalIP]; ok {
 		return net.ParseIP(addresses[0].Address), nil
 	}
 	return nil, fmt.Errorf("host IP unknown; known addresses: %v", addresses)
 }
 
-func (s *NodePortStrategy) Add(svc *api.Service) error {
-	cloned, err := api.Scheme.DeepCopy(svc)
-	if err != nil {
-		return errors.Wrap(err, "failed to clone service")
-	}
-	clone, ok := cloned.(*api.Service)
-	if !ok {
-		return errors.Errorf("cloned to wrong type: %s", reflect.TypeOf(cloned))
-	}
-
-	clone.Spec.Type = api.ServiceTypeNodePort
+func (s *NodePortStrategy) Add(svc *v1.Service) error {
+	var err error
+	clone := svc.DeepCopy()
+	clone.Spec.Type = v1.ServiceTypeNodePort
 
 	if len(svc.Spec.Ports) == 0 {
 		return errors.Errorf(
@@ -114,16 +100,13 @@ func (s *NodePortStrategy) Add(svc *api.Service) error {
 	if err != nil {
 		return errors.Wrap(err, "failed to add service annotation")
 	}
-	patch, err := createPatch(svc, clone, s.encoder, v1.Service{})
+	patch, err := createPatch(svc, clone, v1.Service{})
 	if err != nil {
 		return errors.Wrap(err, "failed to create patch")
 	}
 	if patch != nil {
-		err = s.client.Patch(api.StrategicMergePatchType).
-			Resource("services").
-			Namespace(svc.Namespace).
-			Name(svc.Name).
-			Body(patch).Do().Error()
+		_, err = s.client.CoreV1().Services(svc.Namespace).
+			Patch(svc.Name, types.StrategicMergePatchType, patch)
 		if err != nil {
 			return errors.Wrap(err, fmt.Sprintf("failed to send patch for %s/%s patch %s", svc.Namespace, svc.Name, string(patch)))
 		}
@@ -132,28 +115,17 @@ func (s *NodePortStrategy) Add(svc *api.Service) error {
 	return nil
 }
 
-func (s *NodePortStrategy) Remove(svc *api.Service) error {
-	cloned, err := api.Scheme.DeepCopy(svc)
-	if err != nil {
-		return errors.Wrap(err, "failed to clone service")
-	}
-	clone, ok := cloned.(*api.Service)
-	if !ok {
-		return errors.Errorf("cloned to wrong type: %s", reflect.TypeOf(cloned))
-	}
-
+func (s *NodePortStrategy) Remove(svc *v1.Service) error {
+	clone := svc.DeepCopy()
 	clone = removeServiceAnnotation(clone)
 
-	patch, err := createPatch(svc, clone, s.encoder, v1.Service{})
+	patch, err := createPatch(svc, clone, v1.Service{})
 	if err != nil {
 		return errors.Wrap(err, "failed to create patch")
 	}
 	if patch != nil {
-		err = s.client.Patch(api.StrategicMergePatchType).
-			Resource("services").
-			Namespace(clone.Namespace).
-			Name(clone.Name).
-			Body(patch).Do().Error()
+		_, err = s.client.CoreV1().Services(clone.Namespace).
+			Patch(clone.Name, types.StrategicMergePatchType, patch)
 		if err != nil {
 			return errors.Wrap(err, "failed to send patch")
 		}

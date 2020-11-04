@@ -2,34 +2,29 @@ package controller
 
 import (
 	"bytes"
-	"encoding/json"
 	"fmt"
-	"net/http"
 	"net/url"
-	"os"
 	"strconv"
 	"strings"
 	"time"
 
 	"github.com/golang/glog"
 	"github.com/pkg/errors"
+	yaml "gopkg.in/yaml.v2"
 
-	"k8s.io/kubernetes/pkg/api"
-	uapi "k8s.io/kubernetes/pkg/api/unversioned"
-	"k8s.io/kubernetes/pkg/client/cache"
-	"k8s.io/kubernetes/pkg/client/record"
-	"k8s.io/kubernetes/pkg/client/restclient"
-	client "k8s.io/kubernetes/pkg/client/unversioned"
-	"k8s.io/kubernetes/pkg/controller/framework"
-	"k8s.io/kubernetes/pkg/runtime"
-	"k8s.io/kubernetes/pkg/watch"
+	"k8s.io/api/core/v1"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/runtime"
+	"k8s.io/apimachinery/pkg/types"
+	"k8s.io/apimachinery/pkg/watch"
+	"k8s.io/client-go/kubernetes"
+	"k8s.io/client-go/kubernetes/scheme"
+	typedv1 "k8s.io/client-go/kubernetes/typed/core/v1"
+	"k8s.io/client-go/rest"
+	"k8s.io/client-go/tools/cache"
+	"k8s.io/client-go/tools/record"
 
-	"github.com/jenkins-x/exposecontroller/exposestrategy"
-
-	oclient "github.com/openshift/origin/pkg/client"
-	oauthapi "github.com/openshift/origin/pkg/oauth/api"
-	oauthapiv1 "github.com/openshift/origin/pkg/oauth/api/v1"
-	"gopkg.in/v2/yaml"
+	"github.com/olli-ai/exposecontroller/exposestrategy"
 )
 
 const (
@@ -54,10 +49,10 @@ const (
 )
 
 type Controller struct {
-	client *client.Client
+	client kubernetes.Interface
 
-	svcController *framework.Controller
-	svcLister     cache.StoreToServiceLister
+	svcController cache.Controller
+	svcStore      cache.Store
 
 	config *Config
 
@@ -66,14 +61,29 @@ type Controller struct {
 	stopCh chan struct{}
 }
 
+type eventSink struct {
+	events typedv1.EventInterface
+}
+
+func (es *eventSink) Create(event *v1.Event) (*v1.Event, error) {
+	return es.events.Create(event)
+}
+
+func (es *eventSink) Update(event *v1.Event) (*v1.Event, error) {
+	return es.events.Update(event)
+}
+
+func (es *eventSink) Patch(event *v1.Event, patch []byte) (*v1.Event, error) {
+	return es.events.Patch(event.Name, types.StrategicMergePatchType, patch)
+}
+
 func NewController(
-	kubeClient *client.Client,
-	restClientConfig *restclient.Config,
-	encoder runtime.Encoder,
+	kubeClient kubernetes.Interface,
+	restClientConfig *rest.Config,
 	resyncPeriod time.Duration, namespace string, config *Config) (*Controller, error) {
 	eventBroadcaster := record.NewBroadcaster()
 	eventBroadcaster.StartLogging(glog.Infof)
-	eventBroadcaster.StartRecordingToSink(kubeClient.Events(namespace))
+	eventBroadcaster.StartRecordingToSink(&eventSink{kubeClient.CoreV1().Events(namespace)})
 
 	glog.Infof("NewController %v", config.HTTP)
 
@@ -81,72 +91,30 @@ func NewController(
 		client: kubeClient,
 		stopCh: make(chan struct{}),
 		config: config,
-		recorder: eventBroadcaster.NewRecorder(api.EventSource{
+		recorder: eventBroadcaster.NewRecorder(scheme.Scheme, v1.EventSource{
 			Component: "expose-controller",
 		}),
 	}
 
-	strategy, err := exposestrategy.New(config.Exposer, config.Domain, config.InternalDomain, config.UrlTemplate, config.NodeIP, config.RouteHost, config.PathMode, config.RouteUsePath, config.HTTP, config.TLSAcme, config.TLSSecretName, config.TLSUseWildcard, config.IngressClass, kubeClient, restClientConfig, encoder)
+	strategy, err := exposestrategy.New(config.Exposer, config.Domain, config.InternalDomain, config.UrlTemplate, config.NodeIP, config.PathMode, config.HTTP, config.TLSAcme, config.TLSSecretName, config.TLSUseWildcard, config.IngressClass, kubeClient, restClientConfig)
 	if err != nil {
 		return nil, errors.Wrap(err, "failed to create new strategy")
 	}
 
-	var oc *oclient.Client = nil
-	authorizeURL := ""
-	if isOpenShift(kubeClient) {
-		// register openshift schemas
-		oauthapi.AddToScheme(api.Scheme)
-		oauthapiv1.AddToScheme(api.Scheme)
-
-		ocfg := *restClientConfig
-		ocfg.APIPath = ""
-		ocfg.GroupVersion = nil
-		ocfg.NegotiatedSerializer = nil
-		oc, _ = oclient.New(&ocfg)
-
-		authorizeURL = findOAuthAuthorizeURL()
-		if len(authorizeURL) == 0 {
-			authorizeURL = os.Getenv(OAuthAuthorizeUrlEnvVar)
-		}
-		if len(authorizeURL) == 0 {
-			authorizeURL = config.ApiServer
-			if len(authorizeURL) == 0 {
-				authorizeURL = findApiServerFromNode(kubeClient)
-				config.ApiServer = authorizeURL
-			}
-			if len(authorizeURL) > 0 {
-				if !strings.HasPrefix(authorizeURL, "http:") && !strings.HasPrefix(authorizeURL, "https:") {
-					authorizeURL = "https://" + authorizeURL
-				}
-				authPath := config.AuthorizePath
-				if len(authPath) == 0 {
-					authPath = "/oauth/authorize"
-				}
-				if !strings.HasPrefix(authPath, "/") {
-					authPath = "/" + authPath
-				}
-				authorizeURL = strings.TrimSuffix(authorizeURL, "/") + authPath
-			}
-		}
-		glog.Infof("Using OAuth Authorize URL: %s", authorizeURL)
-		if len(authorizeURL) == 0 {
-			glog.Warningf("Please use $%s to define the OAuth Authorize URL!", OAuthAuthorizeUrlEnvVar)
-		}
-	}
 	if len(config.ApiServerProtocol) == 0 {
 		config.ApiServerProtocol = kubernetesServiceProtocol(kubeClient)
 	}
 
-	c.svcLister.Store, c.svcController = framework.NewInformer(
+	c.svcStore, c.svcController = cache.NewInformer(
 		&cache.ListWatch{
 			ListFunc:  serviceListFunc(c.client, namespace),
 			WatchFunc: serviceWatchFunc(c.client, namespace),
 		},
-		&api.Service{},
+		&v1.Service{},
 		resyncPeriod,
-		framework.ResourceEventHandlerFuncs{
+		cache.ResourceEventHandlerFuncs{
 			AddFunc: func(obj interface{}) {
-				svc := obj.(*api.Service)
+				svc := obj.(*v1.Service)
 				if svc.Labels[exposestrategy.ExposeLabel.Key] == exposestrategy.ExposeLabel.Value ||
 					svc.Annotations[exposestrategy.ExposeAnnotation.Key] == exposestrategy.ExposeAnnotation.Value ||
 					svc.Annotations[exposestrategy.InjectAnnotation.Key] == exposestrategy.InjectAnnotation.Value {
@@ -157,11 +125,11 @@ func NewController(
 					if err != nil {
 						glog.Errorf("Add failed: %v", err)
 					}
-					updateRelatedResources(kubeClient, oc, svc, config, authorizeURL)
+					updateRelatedResources(kubeClient, svc, config)
 				}
 			},
 			UpdateFunc: func(oldObj interface{}, newObj interface{}) {
-				svc := newObj.(*api.Service)
+				svc := newObj.(*v1.Service)
 				if svc.Labels[exposestrategy.ExposeLabel.Key] == exposestrategy.ExposeLabel.Value ||
 					svc.Annotations[exposestrategy.ExposeAnnotation.Key] == exposestrategy.ExposeAnnotation.Value ||
 					svc.Annotations[exposestrategy.InjectAnnotation.Key] == exposestrategy.InjectAnnotation.Value {
@@ -172,9 +140,9 @@ func NewController(
 					if err != nil {
 						glog.Errorf("Add failed: %v", err)
 					}
-					updateRelatedResources(kubeClient, oc, svc, config, authorizeURL)
+					updateRelatedResources(kubeClient, svc, config)
 				} else {
-					oldSvc := oldObj.(*api.Service)
+					oldSvc := oldObj.(*v1.Service)
 					if oldSvc.Labels[exposestrategy.ExposeLabel.Key] == exposestrategy.ExposeLabel.Value ||
 						oldSvc.Annotations[exposestrategy.ExposeAnnotation.Key] == exposestrategy.ExposeAnnotation.Value ||
 						svc.Annotations[exposestrategy.InjectAnnotation.Key] == exposestrategy.InjectAnnotation.Value {
@@ -198,7 +166,7 @@ func NewController(
 					if !isServiceWhitelisted(name, config) {
 						return
 					}
-					err := strategy.Remove(&api.Service{ObjectMeta: api.ObjectMeta{Namespace: ns, Name: name}})
+					err := strategy.Remove(&v1.Service{ObjectMeta: metav1.ObjectMeta{Namespace: ns, Name: name}})
 					if err != nil {
 						glog.Errorf("Remove failed: %v", err)
 					}
@@ -226,8 +194,8 @@ func isServiceWhitelisted(service string, config *Config) bool {
 }
 
 // findApiServerFromNode lets try default the API server URL by detecting minishift/minikube for single node clusters
-func findApiServerFromNode(c *client.Client) string {
-	nodes, err := c.Nodes().List(api.ListOptions{})
+func findApiServerFromNode(c kubernetes.Interface) string {
+	nodes, err := c.CoreV1().Nodes().List(metav1.ListOptions{})
 	if err != nil {
 		glog.Errorf("Failed to list nodes to detect minishift: %v", err)
 		return ""
@@ -245,9 +213,6 @@ func findApiServerFromNode(c *client.Client) string {
 		host = ann["kubernetes.io/hostname"]
 	}
 	if len(host) == 0 {
-		host = node.Spec.ExternalID
-	}
-	if len(host) == 0 {
 		host = node.Name
 	}
 	if len(host) > 0 {
@@ -257,42 +222,18 @@ func findApiServerFromNode(c *client.Client) string {
 
 }
 
-func isOpenShift(c *client.Client) bool {
-	res, err := c.Get().AbsPath("").DoRaw()
-	if err != nil {
-		glog.Errorf("Could not discover the type of your installation: %v", err)
-		return false
-	}
-
-	var rp uapi.RootPaths
-	err = json.Unmarshal(res, &rp)
-	if err != nil {
-		glog.Errorf("Could not discover the type of your installation: %v", err)
-		return false
-	}
-	for _, p := range rp.Paths {
-		if p == "/oapi" {
-			return true
-		}
-	}
-	return false
-}
-
-func updateRelatedResources(c *client.Client, oc *oclient.Client, svc *api.Service, config *Config, authorizeURL string) {
-	updateServiceConfigMap(c, oc, svc, config, authorizeURL)
-	if oc != nil {
-		updateServiceOAuthClient(oc, svc)
-	}
+func updateRelatedResources(c kubernetes.Interface, svc *v1.Service, config *Config) {
+	updateServiceConfigMap(c, svc, config)
 
 	exposeURL := svc.Annotations[exposestrategy.ExposeAnnotationKey]
 	if len(exposeURL) > 0 {
-		updateOtherConfigMaps(c, oc, svc, config, exposeURL)
+		updateOtherConfigMaps(c, svc, config, exposeURL)
 	}
 }
 
-func kubernetesServiceProtocol(c *client.Client) string {
+func kubernetesServiceProtocol(c kubernetes.Interface) string {
 	hasHttp := false
-	svc, err := c.Services("default").Get("kubernetes")
+	svc, err := c.CoreV1().Services("default").Get("kubernetes", metav1.GetOptions{})
 	if err != nil {
 		glog.Warningf("Could not find kubernetes service in the default namespace so we could not detect whether to use http or https as the apiserver protocol. Error: %v", err)
 	} else {
@@ -311,7 +252,7 @@ func kubernetesServiceProtocol(c *client.Client) string {
 	return "https"
 }
 
-func GetServicePort(svc *api.Service) string {
+func GetServicePort(svc *v1.Service) string {
 	for _, port := range svc.Spec.Ports {
 		tp := port.TargetPort.StrVal
 		if tp != "" {
@@ -332,10 +273,10 @@ type ConfigYaml struct {
 	Suffix     string
 }
 
-func updateServiceConfigMap(c *client.Client, oc *oclient.Client, svc *api.Service, config *Config, authorizeURL string) {
+func updateServiceConfigMap(c kubernetes.Interface, svc *v1.Service, config *Config) {
 	name := svc.Name
 	ns := svc.Namespace
-	cm, err := c.ConfigMaps(ns).Get(name)
+	cm, err := c.CoreV1().ConfigMaps(ns).Get(name, metav1.GetOptions{})
 	apiserverURL := ""
 	apiserver := ""
 	apiserverProtocol := ""
@@ -361,11 +302,6 @@ func updateServiceConfigMap(c *client.Client, oc *oclient.Client, svc *api.Servi
 					updated = true
 				}
 			}
-			if len(consoleURL) == 0 {
-				if isOpenShift(c) {
-					consoleURL = urlJoin(apiserverURL, "/console")
-				}
-			}
 		}
 		if len(consoleURL) > 0 {
 			consoleURLKey := cm.Annotations[ExposeConfigConsoleURLKeyAnnotation]
@@ -381,15 +317,6 @@ func updateServiceConfigMap(c *client.Client, oc *oclient.Client, svc *api.Servi
 			if cm.Data[apiserverProtocolKey] != apiserverProtocol {
 				cm.Data[apiserverProtocolKey] = apiserverProtocol
 				updated = true
-			}
-		}
-		if len(authorizeURL) > 0 && oc != nil {
-			authorizeURLKey := cm.Annotations[ExposeConfigOAuthAuthorizeURLKeyAnnotation]
-			if len(authorizeURLKey) > 0 {
-				if cm.Data[authorizeURLKey] != authorizeURL {
-					cm.Data[authorizeURLKey] = authorizeURL
-					updated = true
-				}
 			}
 		}
 
@@ -486,7 +413,7 @@ func updateServiceConfigMap(c *client.Client, oc *oclient.Client, svc *api.Servi
 		}
 		if updated {
 			glog.Infof("Updating ConfigMap %s/%s", ns, name)
-			_, err = c.ConfigMaps(ns).Update(cm)
+			_, err = c.CoreV1().ConfigMaps(ns).Update(cm)
 			if err != nil {
 				glog.Errorf("Failed to update ConfigMap %s error: %v", name, err)
 			}
@@ -528,7 +455,7 @@ func firstMapValue(key string, maps ...map[string]string) string {
 	return ""
 }
 
-func (c *ConfigYaml) UpdateConfigMap(configMap *api.ConfigMap, values map[string]string) bool {
+func (c *ConfigYaml) UpdateConfigMap(configMap *v1.ConfigMap, values map[string]string) bool {
 	key := c.Key
 	if key == "" {
 		glog.Warningf("ConfigMap %s does not have a key in ConfigYaml settings %#v\n", configMap.Name, c)
@@ -567,7 +494,7 @@ func urlJoin(s1 string, s2 string) string {
 }
 
 // updateOtherConfigMaps lets update all other configmaps which want to be injected by this svc exposeURL
-func updateOtherConfigMaps(c *client.Client, oc *oclient.Client, svc *api.Service, config *Config, exposeURL string) error {
+func updateOtherConfigMaps(c kubernetes.Interface, svc *v1.Service, config *Config, exposeURL string) error {
 	serviceName := svc.Name
 	annotationKey := "expose.service-key.config.fabric8.io/" + serviceName
 	annotationFullKey := "expose-full.service-key.config.fabric8.io/" + serviceName
@@ -575,7 +502,7 @@ func updateOtherConfigMaps(c *client.Client, oc *oclient.Client, svc *api.Servic
 	annotationNoPathKey := "expose-no-path.service-key.config.fabric8.io/" + serviceName
 	annotationFullNoProtocolKey := "expose-full-no-protocol.service-key.config.fabric8.io/" + serviceName
 	ns := svc.Namespace
-	cms, err := c.ConfigMaps(ns).List(api.ListOptions{})
+	cms, err := c.CoreV1().ConfigMaps(ns).List(metav1.ListOptions{})
 	if err != nil {
 		return err
 	}
@@ -686,74 +613,13 @@ func updateOtherConfigMaps(c *client.Client, oc *oclient.Client, svc *api.Servic
 			}
 		}
 		if update {
-			_, err = c.ConfigMaps(ns).Update(&cm)
+			_, err = c.CoreV1().ConfigMaps(ns).Update(&cm)
 			if err != nil {
 				return fmt.Errorf("Failed to update ConfigMap %s in namespace %s with key %s due to %v", cm.Name, ns, updateKey, err)
 			}
 		}
 	}
 	return nil
-}
-
-// findOAuthAuthorizeURL uses this endpoint: https://github.com/openshift/origin/pull/10845
-func findOAuthAuthorizeURL() string {
-	url := "https://openshift.default.svc/.well-known/oauth-authorization-server"
-	// test data
-	//url := "https://gist.githubusercontent.com/jstrachan/dbb2066d89810ef1fa53c1df118ccb41/raw/e60a2d42e11930eef13a4264d35514ffd365c8af/dummy.json"
-	r, err := http.Get(url)
-	if err != nil {
-		glog.Warningf("Failed to load url %s got: %v", url, err)
-		return ""
-	}
-	defer r.Body.Close()
-
-	var target OAuthServer
-	err = json.NewDecoder(r.Body).Decode(&target)
-	if err != nil {
-		glog.Warningf("Failed to decode JSON from %s got: %v", url, err)
-		return ""
-	}
-	return target.AuthorizationEndpoint
-}
-
-type OAuthServer struct {
-	Issuer                string `json:"issuer,omitempty"`
-	AuthorizationEndpoint string `json:"authorization_endpoint,omitempty"`
-	TokenEndpoint         string `json:"token_endpoint,omitempty"`
-}
-
-func updateServiceOAuthClient(oc *oclient.Client, svc *api.Service) {
-	name := svc.Name
-	exposeURL := svc.Annotations[exposestrategy.ExposeAnnotationKey]
-	if len(exposeURL) > 0 {
-		oauthClient, err := oc.OAuthClients().Get(name)
-		if err == nil {
-			redirects := oauthClient.RedirectURIs
-			found := false
-			for _, uri := range redirects {
-				if uri == exposeURL {
-					found = true
-					break
-				}
-			}
-			if !found {
-				oauthClient.RedirectURIs = append(redirects, exposeURL)
-				glog.Infof("Deleting OAuthClient %s", name)
-				err = oc.OAuthClients().Delete(name)
-				if err != nil {
-					glog.Errorf("Failed to delete OAuthClient %s error: %v", name, err)
-					return
-				}
-				oauthClient.ResourceVersion = ""
-				glog.Infof("Creating OAuthClient %s with redirectURIs %v", name, oauthClient.RedirectURIs)
-				_, err = oc.OAuthClients().Create(oauthClient)
-				if err != nil {
-					glog.Errorf("Failed to delete OAuthClient %s error: %v", name, err)
-					return
-				}
-			}
-		}
-	}
 }
 
 // Run starts the controller.
@@ -775,14 +641,14 @@ func (c *Controller) Hasrun() bool {
 	return c.svcController.HasSynced()
 }
 
-func serviceListFunc(c *client.Client, ns string) func(api.ListOptions) (runtime.Object, error) {
-	return func(opts api.ListOptions) (runtime.Object, error) {
-		return c.Services(ns).List(opts)
+func serviceListFunc(c kubernetes.Interface, ns string) func(metav1.ListOptions) (runtime.Object, error) {
+	return func(opts metav1.ListOptions) (runtime.Object, error) {
+		return c.CoreV1().Services(ns).List(opts)
 	}
 }
 
-func serviceWatchFunc(c *client.Client, ns string) func(options api.ListOptions) (watch.Interface, error) {
-	return func(options api.ListOptions) (watch.Interface, error) {
-		return c.Services(ns).Watch(options)
+func serviceWatchFunc(c kubernetes.Interface, ns string) func(options metav1.ListOptions) (watch.Interface, error) {
+	return func(options metav1.ListOptions) (watch.Interface, error) {
+		return c.CoreV1().Services(ns).Watch(options)
 	}
 }

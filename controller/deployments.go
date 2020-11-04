@@ -7,16 +7,17 @@ import (
 	"sort"
 	"strings"
 
-	"k8s.io/kubernetes/pkg/api"
-	client "k8s.io/kubernetes/pkg/client/unversioned"
+	"k8s.io/api/core/v1"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/client-go/kubernetes"
 )
 
-func rollingUpgradeDeployments(cm *api.ConfigMap, c *client.Client) error {
+func rollingUpgradeDeployments(cm *v1.ConfigMap, c kubernetes.Interface) error {
 	ns := cm.Namespace
 	configMapName := cm.Name
 	configMapVersion := convertConfigMapToToken(cm)
 
-	deployments, err := c.Deployments(ns).List(api.ListOptions{})
+	deployments, err := c.ExtensionsV1beta1().Deployments(ns).List(metav1.ListOptions{})
 	if err != nil {
 		return errors.Wrap(err, "failed to list deployments")
 	}
@@ -37,7 +38,7 @@ func rollingUpgradeDeployments(cm *api.ConfigMap, c *client.Client) error {
 				updateContainers(containers, annotationValue, configMapVersion)
 
 				// update the deployment
-				_, err := c.Deployments(ns).Update(&d)
+				_, err := c.ExtensionsV1beta1().Deployments(ns).Update(&d)
 				if err != nil {
 					return errors.Wrap(err, "update deployment failed")
 				}
@@ -49,7 +50,7 @@ func rollingUpgradeDeployments(cm *api.ConfigMap, c *client.Client) error {
 }
 
 // lets convert the configmap into a unique token based on the data values
-func convertConfigMapToToken(cm *api.ConfigMap) string {
+func convertConfigMapToToken(cm *v1.ConfigMap) string {
 	values := []string{}
 	for k, v := range cm.Data {
 		values = append(values, k+"="+v)
@@ -61,7 +62,7 @@ func convertConfigMapToToken(cm *api.ConfigMap) string {
 	return text
 }
 
-func updateContainers(containers []api.Container, annotationValue, configMapVersion string) bool {
+func updateContainers(containers []v1.Container, annotationValue, configMapVersion string) bool {
 	// we can have multiple configmaps to update
 	answer := false
 	configmaps := strings.Split(annotationValue, ",")
@@ -83,7 +84,7 @@ func updateContainers(containers []api.Container, annotationValue, configMapVers
 			}
 			// if no existing env var exists lets create one
 			if !matched {
-				e := api.EnvVar{
+				e := v1.EnvVar{
 					Name:  configmapEnvar,
 					Value: configMapVersion,
 				}

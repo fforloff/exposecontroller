@@ -4,9 +4,11 @@ import (
 	"fmt"
 	"strconv"
 	"strings"
+	"reflect"
 
 	"github.com/golang/glog"
 	"github.com/pkg/errors"
+	"gopkg.in/yaml.v2"
 
 	"k8s.io/api/core/v1"
 	"k8s.io/api/extensions/v1beta1"
@@ -111,69 +113,56 @@ func (s *IngressStrategy) Add(svc *v1.Service) error {
 		fullHostName = UrlJoin(hostName, path)
 	}
 
-	ingress, err := s.client.ExtensionsV1beta1().Ingresses(svc.Namespace).Get(appName, metav1.GetOptions{})
-	createIngress := false
-	if err != nil {
-		if apierrors.IsNotFound(err) {
-			createIngress = true
-			ingress = &v1beta1.Ingress{
-				ObjectMeta: metav1.ObjectMeta{
-					Namespace: svc.Namespace,
-					Name:      appName,
-				},
+	exposePort := svc.Annotations[ExposePortAnnotationKey]
+	if exposePort != "" {
+		port, err := strconv.Atoi(exposePort)
+		if err != nil {
+			return errors.Wrapf(err, "port \"%s\" provided in the annotation \"%s\" is not a valid number in service %s/%s",
+				exposePort, ExposePortAnnotationKey, svc.Namespace, svc.Name)
+		}
+		found := false
+		for _, p := range svc.Spec.Ports {
+			if port == int(p.Port) {
+				found = true
+				break
 			}
-		} else {
-			return errors.Wrapf(err, "could not check for existing ingress %s/%s", svc.Namespace, appName)
+		}
+		if !found {
+			glog.Warningf("port \"%s\" provided in the annotation \"%s\" is not available in the ports of service %s/%s",
+				exposePort, ExposePortAnnotationKey, svc.Namespace, svc.Name)
+			exposePort = ""
 		}
 	}
-
-	if ingress.Labels == nil {
-		ingress.Labels = map[string]string{}
-		ingress.Labels["provider"] = "fabric8"
+	// Pick the fist port available in the service if no expose port was configured
+	if exposePort == "" && len(svc.Spec.Ports) > 0 {
+		port := svc.Spec.Ports[0]
+		exposePort = strconv.Itoa(int(port.Port))
 	}
 
-	if ingress.Annotations == nil {
-		ingress.Annotations = map[string]string{}
-		ingress.Annotations["fabric8.io/generated-by"] = "exposecontroller"
+	servicePort, err := strconv.Atoi(exposePort)
+	if err != nil {
+		return errors.Wrapf(err, "failed to convert the exposed port \"%s\" to int in service %s/%s",
+			exposePort, svc.Namespace, svc.Name)
 	}
+	glog.Infof("Exposing Port %d of Service %s/%s",
+		servicePort, svc.Namespace, svc.Name)
 
-	hasOwner := false
-	for _, o := range ingress.OwnerReferences {
-		if o.UID == svc.UID {
-			hasOwner = true
-			break
-		}
-	}
-	if !hasOwner {
-		ingress.OwnerReferences = append(ingress.OwnerReferences, metav1.OwnerReference{
-			APIVersion: "v1",
-			Kind:       "Service",
-			Name:       svc.Name,
-			UID:        svc.UID,
-		})
+	ingressAnnotations := map[string]string{
+		"fabric8.io/generated-by": "exposecontroller",
 	}
 
 	if s.ingressClass != "" {
-		ingress.Annotations["kubernetes.io/ingress.class"] = s.ingressClass
-		ingress.Annotations["nginx.ingress.kubernetes.io/ingress.class"] = s.ingressClass
+		ingressAnnotations["kubernetes.io/ingress.class"] = s.ingressClass
+		ingressAnnotations["nginx.ingress.kubernetes.io/ingress.class"] = s.ingressClass
+	} else if pathMode == PathModeUsePath {
+		ingressAnnotations["kubernetes.io/ingress.class"] = "nginx"
+		ingressAnnotations["nginx.ingress.kubernetes.io/ingress.class"] = "nginx"
 	}
 
-	if pathMode == PathModeUsePath {
-		if ingress.Annotations["kubernetes.io/ingress.class"] == "" {
-			ingress.Annotations["kubernetes.io/ingress.class"] = "nginx"
-		}
-		if ingress.Annotations["nginx.ingress.kubernetes.io/ingress.class"] == "" {
-			ingress.Annotations["nginx.ingress.kubernetes.io/ingress.class"] = "nginx"
-		}
-		/*		if ingress.Annotations["nginx.ingress.kubernetes.io/rewrite-target"] == "" {
-					ingress.Annotations["nginx.ingress.kubernetes.io/rewrite-target"] = "/"
-				}
-		*/
-	}
 	var tlsSecretName string
 
 	if s.tlsAcme {
-		ingress.Annotations["kubernetes.io/tls-acme"] = "true"
+		ingressAnnotations["kubernetes.io/tls-acme"] = "true"
 		if s.tlsSecretName == "" {
 			tlsSecretName = "tls-" + appName
 		} else {
@@ -181,88 +170,9 @@ func (s *IngressStrategy) Add(svc *v1.Service) error {
 		}
 	}
 
-	annotationsForIngress := svc.Annotations["fabric8.io/ingress.annotations"]
-	if annotationsForIngress != "" {
-		annotations := strings.Split(annotationsForIngress, "\n")
-		for _, element := range annotations {
-			annotation := strings.SplitN(element, ":", 2)
-			key, value := annotation[0], strings.TrimSpace(annotation[1])
-			ingress.Annotations[key] = value
-		}
-	}
-
-	glog.Infof("Processing Ingress for Service %s with http: %v path mode: %s and path: %s", svc.Name, s.http, pathMode, path)
-
-	backendPaths := []v1beta1.HTTPIngressPath{}
-	if ingress.Spec.Rules != nil {
-		backendPaths = ingress.Spec.Rules[0].HTTP.Paths
-	}
-
-	// check incase we already have this backend path listed
-	for _, backendPath := range backendPaths {
-		if backendPath.Backend.ServiceName == svc.Name && backendPath.Path == path {
-			return nil
-		}
-	}
-
-	exposePort := svc.Annotations[ExposePortAnnotationKey]
-	if exposePort != "" {
-		port, err := strconv.Atoi(exposePort)
-		if err == nil {
-			found := false
-			for _, p := range svc.Spec.Ports {
-				if port == int(p.Port) {
-					found = true
-					break
-				}
-			}
-			if !found {
-				glog.Warningf("Port '%s' provided in the annotation '%s' is not available in the ports of service '%s'",
-					exposePort, ExposePortAnnotationKey, svc.GetName())
-				exposePort = ""
-			}
-		} else {
-			glog.Warningf("Port '%s' provided in the annotation '%s' is not a valid number",
-				exposePort, ExposePortAnnotationKey)
-			exposePort = ""
-		}
-	}
-	// Pick the fist port available in the service if no expose port was configured
-	if exposePort == "" {
-		port := svc.Spec.Ports[0]
-		exposePort = strconv.Itoa(int(port.Port))
-	}
-
-	servicePort, err := strconv.Atoi(exposePort)
-	if err != nil {
-		return errors.Wrapf(err, "failed to convert the exposed port '%s' to int", exposePort)
-	}
-	glog.Infof("Exposing Port %d of Service %s", servicePort, svc.Name)
-
-	ingressPaths := []v1beta1.HTTPIngressPath{}
-	ingressPath := v1beta1.HTTPIngressPath{
-		Backend: v1beta1.IngressBackend{
-			ServiceName: svc.Name,
-			ServicePort: intstr.FromInt(servicePort),
-		},
-		Path: path,
-	}
-	ingressPaths = append(ingressPaths, ingressPath)
-	ingressPaths = append(ingressPaths, backendPaths...)
-
-	ingress.Spec.Rules = []v1beta1.IngressRule{}
-	rule := v1beta1.IngressRule{
-		Host: hostName,
-		IngressRuleValue: v1beta1.IngressRuleValue{
-			HTTP: &v1beta1.HTTPIngressRuleValue{
-				Paths: ingressPaths,
-			},
-		},
-	}
-	ingress.Spec.Rules = append(ingress.Spec.Rules, rule)
-
+	var tlsSpec []v1beta1.IngressTLS
 	if s.isTLSEnabled(svc) {
-		ingress.Spec.TLS = []v1beta1.IngressTLS{
+		tlsSpec = []v1beta1.IngressTLS{
 			{
 				Hosts:      []string{tlsHostName},
 				SecretName: tlsSecretName,
@@ -270,13 +180,75 @@ func (s *IngressStrategy) Add(svc *v1.Service) error {
 		}
 	}
 
-	if createIngress {
-		_, err := s.client.ExtensionsV1beta1().Ingresses(ingress.Namespace).Create(ingress)
+	annotationsString := svc.Annotations["fabric8.io/ingress.annotations"]
+	if annotationsString != "" {
+		err := yaml.Unmarshal([]byte(annotationsString), ingressAnnotations)
+		if err != nil {
+			return errors.Wrapf(err, "failed to parse annotation \"fabric8.io/ingress.annotations\" in service %s/%s",
+				exposePort, svc.Namespace, svc.Name)
+		}
+	}
+
+	ingress := v1beta1.Ingress{
+		ObjectMeta: metav1.ObjectMeta{
+			Namespace:   svc.Namespace,
+			Name:        appName,
+			Labels:      map[string]string{
+				"provider": "fabric8",
+			},
+			Annotations: ingressAnnotations,
+			OwnerReferences: []metav1.OwnerReference{{
+				Kind:       svc.Kind,
+				APIVersion: svc.APIVersion,
+				Name:       svc.Name,
+				UID:        svc.UID,
+			}},
+		},
+		Spec: v1beta1.IngressSpec{
+			Rules: []v1beta1.IngressRule{{
+				Host: hostName,
+				IngressRuleValue: v1beta1.IngressRuleValue{
+					HTTP: &v1beta1.HTTPIngressRuleValue{
+						Paths: []v1beta1.HTTPIngressPath{{
+							Backend: v1beta1.IngressBackend{
+								ServiceName: svc.Name,
+								ServicePort: intstr.FromInt(servicePort),
+							},
+							Path: path,
+						}},
+					},
+				},
+			}},
+			TLS: tlsSpec,
+		},
+	}
+
+	existing, err := s.client.ExtensionsV1beta1().Ingresses(svc.Namespace).Get(appName, metav1.GetOptions{})
+
+	if err == nil {
+		if reflect.DeepEqual(ingress.Labels, existing.Labels) &&
+		reflect.DeepEqual(ingress.Annotations, existing.Annotations) &&
+		reflect.DeepEqual(ingress.OwnerReferences, existing.OwnerReferences) &&
+		reflect.DeepEqual(ingress.Spec, existing.Spec) {
+			glog.Infof("ingress %s/%s already up to date for service %s/%s",
+				ingress.Namespace, ingress.Name, svc.Namespace, svc.Name)
+			return nil
+		}
+		ingress.ResourceVersion = existing.ResourceVersion
+	} else if !apierrors.IsNotFound(err) {
+		return errors.Wrapf(err, "could not check for existing ingress %s/%s", ingress.Namespace, ingress.Name)
+	}
+
+	glog.Infof("processing ingress for service %s/%s with http: %v, path mode: %s, and path: %s",
+		svc.Namespace, svc.Name, s.http, pathMode, path)
+
+	if ingress.ResourceVersion == "" {
+		_, err := s.client.ExtensionsV1beta1().Ingresses(ingress.Namespace).Create(&ingress)
 		if err != nil {
 			return errors.Wrapf(err, "failed to create ingress %s/%s", ingress.Namespace, ingress.Name)
 		}
 	} else {
-		_, err := s.client.ExtensionsV1beta1().Ingresses(svc.Namespace).Update(ingress)
+		_, err := s.client.ExtensionsV1beta1().Ingresses(ingress.Namespace).Update(&ingress)
 		if err != nil {
 			return errors.Wrapf(err, "failed to update ingress %s/%s", ingress.Namespace, ingress.Name)
 		}
@@ -290,17 +262,20 @@ func (s *IngressStrategy) Add(svc *v1.Service) error {
 	}
 
 	if err != nil {
-		return errors.Wrap(err, "failed to add service annotation")
+		return errors.Wrapf(err, "failed to add annotation to service %s/%s",
+			svc.Namespace, svc.Name)
 	}
 	patch, err := createPatch(svc, clone, v1.Service{})
 	if err != nil {
-		return errors.Wrap(err, "failed to create patch")
+		return errors.Wrapf(err, "failed to create patch for service %s/%s",
+			svc.Namespace, svc.Name)
 	}
 	if patch != nil {
 		_, err = s.client.CoreV1().Services(svc.Namespace).
 			Patch(svc.Name, types.StrategicMergePatchType, patch)
 		if err != nil {
-			return errors.Wrap(err, "failed to send patch")
+			return errors.Wrapf(err, "failed to send patch %s/%s",
+				svc.Namespace, svc.Name)
 		}
 	}
 

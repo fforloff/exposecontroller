@@ -20,7 +20,6 @@ import (
 	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/kubernetes/scheme"
 	typedv1 "k8s.io/client-go/kubernetes/typed/core/v1"
-	"k8s.io/client-go/rest"
 	"k8s.io/client-go/tools/cache"
 	"k8s.io/client-go/tools/record"
 
@@ -77,10 +76,7 @@ func (es *eventSink) Patch(event *v1.Event, patch []byte) (*v1.Event, error) {
 	return es.events.Patch(event.Name, types.StrategicMergePatchType, patch)
 }
 
-func NewController(
-	kubeClient kubernetes.Interface,
-	restClientConfig *rest.Config,
-	resyncPeriod time.Duration, namespace string, config *Config) (*Controller, error) {
+func NewController(kubeClient kubernetes.Interface, resyncPeriod time.Duration, namespace string, config *Config) (*Controller, error) {
 	eventBroadcaster := record.NewBroadcaster()
 	eventBroadcaster.StartLogging(glog.Infof)
 	eventBroadcaster.StartRecordingToSink(&eventSink{kubeClient.CoreV1().Events(namespace)})
@@ -96,7 +92,7 @@ func NewController(
 		}),
 	}
 
-	strategy, err := exposestrategy.New(config.Exposer, config.Domain, config.InternalDomain, config.UrlTemplate, config.NodeIP, config.PathMode, config.HTTP, config.TLSAcme, config.TLSSecretName, config.TLSUseWildcard, config.IngressClass, kubeClient, restClientConfig)
+	strategy, err := exposestrategy.New(config.Exposer, config.Domain, config.InternalDomain, config.UrlTemplate, config.NodeIP, config.PathMode, config.HTTP, config.TLSAcme, config.TLSSecretName, config.TLSUseWildcard, config.IngressClass, kubeClient, namespace)
 	if err != nil {
 		return nil, errors.Wrap(err, "failed to create new strategy")
 	}

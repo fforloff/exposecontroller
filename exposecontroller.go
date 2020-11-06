@@ -191,7 +191,7 @@ func main() {
 	if *daemon {
 		glog.Infof("Watching services in namespaces: `%s`", watchNamespaces)
 
-		c, err := controller.NewController(kubeClient, restClientConfig, *resyncPeriod, watchNamespaces, controllerConfig)
+		c, err := controller.NewController(kubeClient, *resyncPeriod, watchNamespaces, controllerConfig)
 		if err != nil {
 			glog.Fatalf("%s", err)
 		}
@@ -202,7 +202,7 @@ func main() {
 		c.Run()
 	} else {
 		glog.Infof("Running in : `%s`", watchNamespaces)
-		c, err := controller.NewController(kubeClient, restClientConfig, *resyncPeriod, watchNamespaces, controllerConfig)
+		c, err := controller.NewController(kubeClient, *resyncPeriod, watchNamespaces, controllerConfig)
 		if err != nil {
 			glog.Fatalf("%s", err)
 		}

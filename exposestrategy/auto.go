@@ -9,7 +9,6 @@ import (
 	"k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/client-go/kubernetes"
-	"k8s.io/client-go/rest"
 )
 
 const (
@@ -22,7 +21,7 @@ const (
 	stackpointIPEnvVar = "BALANCER_IP"
 )
 
-func NewAutoStrategy(exposer, domain, internalDomain, urltemplate string, nodeIP, pathMode string, http, tlsAcme bool, tlsSecretName string, tlsUseWildcard bool, ingressClass string, client kubernetes.Interface, restClientConfig *rest.Config) (ExposeStrategy, error) {
+func NewAutoStrategy(exposer, domain, internalDomain, urltemplate string, nodeIP, pathMode string, http, tlsAcme bool, tlsSecretName string, tlsUseWildcard bool, ingressClass string, client kubernetes.Interface, namespace string) (ExposeStrategy, error) {
 
 	exposer, err := getAutoDefaultExposeRule(client)
 	if err != nil {
@@ -39,7 +38,7 @@ func NewAutoStrategy(exposer, domain, internalDomain, urltemplate string, nodeIP
 		glog.Infof("Using domain: %s", domain)
 	}
 
-	return New(exposer, domain, internalDomain, urltemplate, nodeIP, pathMode, http, tlsAcme, tlsSecretName, tlsUseWildcard, ingressClass, client, restClientConfig)
+	return New(exposer, domain, internalDomain, urltemplate, nodeIP, pathMode, http, tlsAcme, tlsSecretName, tlsUseWildcard, ingressClass, client, namespace)
 }
 
 func getAutoDefaultExposeRule(c kubernetes.Interface) (string, error) {

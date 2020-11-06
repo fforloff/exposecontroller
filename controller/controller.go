@@ -15,13 +15,9 @@ import (
 	"k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
-	"k8s.io/apimachinery/pkg/types"
-	"k8s.io/apimachinery/pkg/watch"
+	"k8s.io/apimachinery/pkg/util/wait"
 	"k8s.io/client-go/kubernetes"
-	"k8s.io/client-go/kubernetes/scheme"
-	typedv1 "k8s.io/client-go/kubernetes/typed/core/v1"
 	"k8s.io/client-go/tools/cache"
-	"k8s.io/client-go/tools/record"
 
 	"github.com/olli-ai/exposecontroller/exposestrategy"
 )
@@ -47,131 +43,107 @@ const (
 	updateOnChangeAnnotation = "configmap.fabric8.io/update-on-change"
 )
 
-type Controller struct {
-	client kubernetes.Interface
-
-	svcController cache.Controller
-	svcStore      cache.Store
-
-	config *Config
-
-	recorder record.EventRecorder
-
-	stopCh chan struct{}
-}
-
-type eventSink struct {
-	events typedv1.EventInterface
-}
-
-func (es *eventSink) Create(event *v1.Event) (*v1.Event, error) {
-	return es.events.Create(event)
-}
-
-func (es *eventSink) Update(event *v1.Event) (*v1.Event, error) {
-	return es.events.Update(event)
-}
-
-func (es *eventSink) Patch(event *v1.Event, patch []byte) (*v1.Event, error) {
-	return es.events.Patch(event.Name, types.StrategicMergePatchType, patch)
-}
-
-func NewController(kubeClient kubernetes.Interface, resyncPeriod time.Duration, namespace string, config *Config) (*Controller, error) {
-	eventBroadcaster := record.NewBroadcaster()
-	eventBroadcaster.StartLogging(glog.Infof)
-	eventBroadcaster.StartRecordingToSink(&eventSink{kubeClient.CoreV1().Events(namespace)})
+func RunController(client kubernetes.Interface, resyncPeriod time.Duration, namespace string, daemon bool, config *Config) error {
 
 	glog.Infof("NewController %v", config.HTTP)
 
-	c := Controller{
-		client: kubeClient,
-		stopCh: make(chan struct{}),
-		config: config,
-		recorder: eventBroadcaster.NewRecorder(scheme.Scheme, v1.EventSource{
-			Component: "expose-controller",
-		}),
-	}
-
-	strategy, err := exposestrategy.New(config.Exposer, config.Domain, config.InternalDomain, config.UrlTemplate, config.NodeIP, config.PathMode, config.HTTP, config.TLSAcme, config.TLSSecretName, config.TLSUseWildcard, config.IngressClass, kubeClient, namespace)
+	strategy, err := exposestrategy.New(config.Exposer, config.Domain, config.InternalDomain, config.UrlTemplate, config.NodeIP, config.PathMode, config.HTTP, config.TLSAcme, config.TLSSecretName, config.TLSUseWildcard, config.IngressClass, client, namespace)
 	if err != nil {
-		return nil, errors.Wrap(err, "failed to create new strategy")
+		return errors.Wrap(err, "failed to create new strategy")
 	}
 
 	if len(config.ApiServerProtocol) == 0 {
-		config.ApiServerProtocol = kubernetesServiceProtocol(kubeClient)
+		config.ApiServerProtocol = kubernetesServiceProtocol(client)
 	}
 
-	c.svcStore, c.svcController = cache.NewInformer(
-		&cache.ListWatch{
-			ListFunc:  serviceListFunc(c.client, namespace),
-			WatchFunc: serviceWatchFunc(c.client, namespace),
+	handlers := cache.ResourceEventHandlerFuncs{
+		AddFunc: func(obj interface{}) {
+			svc := obj.(*v1.Service)
+			if svc.Labels[exposestrategy.ExposeLabel.Key] == exposestrategy.ExposeLabel.Value ||
+				svc.Annotations[exposestrategy.ExposeAnnotation.Key] == exposestrategy.ExposeAnnotation.Value ||
+				svc.Annotations[exposestrategy.InjectAnnotation.Key] == exposestrategy.InjectAnnotation.Value {
+				if !isServiceWhitelisted(svc.GetName(), config) {
+					return
+				}
+				err := strategy.Add(svc)
+				if err != nil {
+					glog.Errorf("Add failed: %v", err)
+				}
+				updateRelatedResources(client, svc, config)
+			}
 		},
-		&v1.Service{},
-		resyncPeriod,
-		cache.ResourceEventHandlerFuncs{
-			AddFunc: func(obj interface{}) {
-				svc := obj.(*v1.Service)
-				if svc.Labels[exposestrategy.ExposeLabel.Key] == exposestrategy.ExposeLabel.Value ||
-					svc.Annotations[exposestrategy.ExposeAnnotation.Key] == exposestrategy.ExposeAnnotation.Value ||
+		UpdateFunc: func(oldObj interface{}, newObj interface{}) {
+			svc := newObj.(*v1.Service)
+			if svc.Labels[exposestrategy.ExposeLabel.Key] == exposestrategy.ExposeLabel.Value ||
+				svc.Annotations[exposestrategy.ExposeAnnotation.Key] == exposestrategy.ExposeAnnotation.Value ||
+				svc.Annotations[exposestrategy.InjectAnnotation.Key] == exposestrategy.InjectAnnotation.Value {
+				if !isServiceWhitelisted(svc.GetName(), config) {
+					return
+				}
+				err := strategy.Add(svc)
+				if err != nil {
+					glog.Errorf("Add failed: %v", err)
+				}
+				updateRelatedResources(client, svc, config)
+			} else {
+				oldSvc := oldObj.(*v1.Service)
+				if oldSvc.Labels[exposestrategy.ExposeLabel.Key] == exposestrategy.ExposeLabel.Value ||
+					oldSvc.Annotations[exposestrategy.ExposeAnnotation.Key] == exposestrategy.ExposeAnnotation.Value ||
 					svc.Annotations[exposestrategy.InjectAnnotation.Key] == exposestrategy.InjectAnnotation.Value {
 					if !isServiceWhitelisted(svc.GetName(), config) {
 						return
 					}
-					err := strategy.Add(svc)
-					if err != nil {
-						glog.Errorf("Add failed: %v", err)
-					}
-					updateRelatedResources(kubeClient, svc, config)
-				}
-			},
-			UpdateFunc: func(oldObj interface{}, newObj interface{}) {
-				svc := newObj.(*v1.Service)
-				if svc.Labels[exposestrategy.ExposeLabel.Key] == exposestrategy.ExposeLabel.Value ||
-					svc.Annotations[exposestrategy.ExposeAnnotation.Key] == exposestrategy.ExposeAnnotation.Value ||
-					svc.Annotations[exposestrategy.InjectAnnotation.Key] == exposestrategy.InjectAnnotation.Value {
-					if !isServiceWhitelisted(svc.GetName(), config) {
-						return
-					}
-					err := strategy.Add(svc)
-					if err != nil {
-						glog.Errorf("Add failed: %v", err)
-					}
-					updateRelatedResources(kubeClient, svc, config)
-				} else {
-					oldSvc := oldObj.(*v1.Service)
-					if oldSvc.Labels[exposestrategy.ExposeLabel.Key] == exposestrategy.ExposeLabel.Value ||
-						oldSvc.Annotations[exposestrategy.ExposeAnnotation.Key] == exposestrategy.ExposeAnnotation.Value ||
-						svc.Annotations[exposestrategy.InjectAnnotation.Key] == exposestrategy.InjectAnnotation.Value {
-						if !isServiceWhitelisted(svc.GetName(), config) {
-							return
-						}
-						err := strategy.Remove(svc)
-						if err != nil {
-							glog.Errorf("Remove failed: %v", err)
-						}
-					}
-				}
-			},
-			DeleteFunc: func(obj interface{}) {
-				svc, ok := obj.(cache.DeletedFinalStateUnknown)
-				if ok {
-					// service key is in the form namespace/name
-					split := strings.Split(svc.Key, "/")
-					ns := split[0]
-					name := split[1]
-					if !isServiceWhitelisted(name, config) {
-						return
-					}
-					err := strategy.Remove(&v1.Service{ObjectMeta: metav1.ObjectMeta{Namespace: ns, Name: name}})
+					err := strategy.Remove(svc)
 					if err != nil {
 						glog.Errorf("Remove failed: %v", err)
 					}
 				}
-			},
+			}
 		},
-	)
+		DeleteFunc: func(obj interface{}) {
+			svc, ok := obj.(cache.DeletedFinalStateUnknown)
+			if ok {
+				// service key is in the form namespace/name
+				split := strings.Split(svc.Key, "/")
+				ns := split[0]
+				name := split[1]
+				if !isServiceWhitelisted(name, config) {
+					return
+				}
+				err := strategy.Remove(&v1.Service{ObjectMeta: metav1.ObjectMeta{Namespace: ns, Name: name}})
+				if err != nil {
+					glog.Errorf("Remove failed: %v", err)
+				}
+			}
+		},
+	}
 
-	return &c, nil
+	services := client.CoreV1().Services(namespace)
+
+	if daemon {
+		_, controller := cache.NewInformer(
+			&cache.ListWatch{
+				ListFunc:  func(options metav1.ListOptions) (runtime.Object, error) {
+					return services.List(options)
+				},
+				WatchFunc: services.Watch,
+			},
+			&v1.Service{},
+			resyncPeriod,
+			handlers,
+		)
+		controller.Run(wait.NeverStop)
+	} else {
+		list, err := services.List(metav1.ListOptions{})
+		if err != nil {
+			return errors.Wrap(err, "failed getting the list of services")
+		}
+		for _, svc := range list.Items{
+			handlers.AddFunc(svc)
+		}
+	}
+
+	return nil
 }
 
 // isServiceWhitelisted checks if a service is white-listed in the controller configuration, allow all services if
@@ -187,35 +159,6 @@ func isServiceWhitelisted(service string, config *Config) bool {
 		}
 	}
 	return false
-}
-
-// findApiServerFromNode lets try default the API server URL by detecting minishift/minikube for single node clusters
-func findApiServerFromNode(c kubernetes.Interface) string {
-	nodes, err := c.CoreV1().Nodes().List(metav1.ListOptions{})
-	if err != nil {
-		glog.Errorf("Failed to list nodes to detect minishift: %v", err)
-		return ""
-	}
-	items := nodes.Items
-	if len(items) != 1 {
-		glog.Errorf("Number of nodes is %d. We need 1 to detect minishift. Please use  to list nodes to detect minishift: %v", len(items), err)
-		return ""
-	}
-	node := items[0]
-	port := "8443"
-	ann := node.Annotations
-	host := ""
-	if ann != nil {
-		host = ann["kubernetes.io/hostname"]
-	}
-	if len(host) == 0 {
-		host = node.Name
-	}
-	if len(host) > 0 {
-		return host + ":" + port
-	}
-	return ""
-
 }
 
 func updateRelatedResources(c kubernetes.Interface, svc *v1.Service, config *Config) {
@@ -485,10 +428,6 @@ func (c *ConfigYaml) UpdateConfigMap(configMap *v1.ConfigMap, values map[string]
 	return false
 }
 
-func urlJoin(s1 string, s2 string) string {
-	return strings.TrimSuffix(s1, "/") + "/" + strings.TrimPrefix(s2, "/")
-}
-
 // updateOtherConfigMaps lets update all other configmaps which want to be injected by this svc exposeURL
 func updateOtherConfigMaps(c kubernetes.Interface, svc *v1.Service, config *Config, exposeURL string) error {
 	serviceName := svc.Name
@@ -616,35 +555,4 @@ func updateOtherConfigMaps(c kubernetes.Interface, svc *v1.Service, config *Conf
 		}
 	}
 	return nil
-}
-
-// Run starts the controller.
-func (c *Controller) Run() {
-	glog.Infof("starting expose controller")
-
-	go c.svcController.Run(c.stopCh)
-
-	<-c.stopCh
-}
-
-func (c *Controller) Stop() {
-	glog.Infof("stopping expose controller")
-
-	close(c.stopCh)
-}
-
-func (c *Controller) Hasrun() bool {
-	return c.svcController.HasSynced()
-}
-
-func serviceListFunc(c kubernetes.Interface, ns string) func(metav1.ListOptions) (runtime.Object, error) {
-	return func(opts metav1.ListOptions) (runtime.Object, error) {
-		return c.CoreV1().Services(ns).List(opts)
-	}
-}
-
-func serviceWatchFunc(c kubernetes.Interface, ns string) func(options metav1.ListOptions) (watch.Interface, error) {
-	return func(options metav1.ListOptions) (watch.Interface, error) {
-		return c.CoreV1().Services(ns).Watch(options)
-	}
 }

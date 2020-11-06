@@ -2,13 +2,8 @@ package main
 
 import (
 	"flag"
-	"fmt"
-	"net/http"
-	"net/http/pprof"
 	"os"
-	"os/signal"
 	"strings"
-	"syscall"
 	"time"
 
 	"github.com/golang/glog"
@@ -190,43 +185,13 @@ func main() {
 
 	if *daemon {
 		glog.Infof("Watching services in namespaces: `%s`", watchNamespaces)
-
-		c, err := controller.NewController(kubeClient, *resyncPeriod, watchNamespaces, controllerConfig)
-		if err != nil {
-			glog.Fatalf("%s", err)
-		}
-
-		go registerHandlers()
-		go handleSigterm(c)
-
-		c.Run()
 	} else {
 		glog.Infof("Running in : `%s`", watchNamespaces)
-		c, err := controller.NewController(kubeClient, *resyncPeriod, watchNamespaces, controllerConfig)
-		if err != nil {
-			glog.Fatalf("%s", err)
-		}
+	}
 
-		ticker := time.NewTicker(5 * time.Second)
-		quit := make(chan struct{})
-		go func() {
-			for {
-				select {
-				case <-ticker.C:
-					if c.Hasrun() {
-						close(quit)
-					}
-				case <-quit:
-					c.Stop()
-					ticker.Stop()
-					return
-				}
-			}
-		}()
-		// Handle Control-C has well here
-		go handleSigterm(c)
-
-		c.Run()
+	err = controller.RunController(kubeClient, *resyncPeriod, watchNamespaces, *daemon, controllerConfig)
+	if err != nil {
+		glog.Fatalf("%s", err)
 	}
 }
 
@@ -262,28 +227,4 @@ func tryFindConfig(kubeClient kubernetes.Interface, ns string) *controller.Confi
 		}
 	}
 	return controllerConfig
-}
-
-func registerHandlers() {
-	mux := http.NewServeMux()
-
-	if *profiling {
-		mux.HandleFunc("/debug/pprof/", pprof.Index)
-		mux.HandleFunc("/debug/pprof/profile", pprof.Profile)
-		mux.HandleFunc("/debug/pprof/symbol", pprof.Symbol)
-	}
-
-	server := &http.Server{
-		Addr:    fmt.Sprintf(":%v", *healthzPort),
-		Handler: mux,
-	}
-	glog.Fatal(server.ListenAndServe())
-}
-
-func handleSigterm(c *controller.Controller) {
-	signalChan := make(chan os.Signal, 1)
-	signal.Notify(signalChan, syscall.SIGINT, syscall.SIGTERM)
-	sig := <-signalChan
-	glog.Infof("Received %s, shutting down", sig)
-	c.Stop()
 }

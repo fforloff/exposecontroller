@@ -15,7 +15,6 @@ import (
 	"k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
-	"k8s.io/apimachinery/pkg/util/wait"
 	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/tools/cache"
 
@@ -43,7 +42,7 @@ const (
 	updateOnChangeAnnotation = "configmap.fabric8.io/update-on-change"
 )
 
-func RunController(client kubernetes.Interface, resyncPeriod time.Duration, namespace string, daemon bool, config *Config) error {
+func RunController(client kubernetes.Interface, namespace string, config *Config) error {
 
 	glog.Infof("NewController %v", config.HTTP)
 
@@ -56,13 +55,47 @@ func RunController(client kubernetes.Interface, resyncPeriod time.Duration, name
 		config.ApiServerProtocol = kubernetesServiceProtocol(client)
 	}
 
+	services := client.CoreV1().Services(namespace)
+
+	list, err := services.List(metav1.ListOptions{})
+	if err != nil {
+		return errors.Wrap(err, "failed getting the list of services")
+	}
+	for index := range list.Items{
+		svc := &list.Items[index]
+		if shouldExposeService(svc) {
+			if !isServiceWhitelisted(svc.Name, config) {
+				continue
+			}
+			err := strategy.Add(svc)
+			if err != nil {
+				glog.Errorf("Add failed: %v", err)
+			}
+			updateRelatedResources(client, svc, config)
+		}
+	}
+
+	return nil
+}
+
+func ControllerDaemon(client kubernetes.Interface, resyncPeriod time.Duration, namespace string, config *Config) (cache.Controller, error) {
+
+	glog.Infof("NewController %v", config.HTTP)
+
+	strategy, err := exposestrategy.New(config.Exposer, config.Domain, config.InternalDomain, config.UrlTemplate, config.NodeIP, config.PathMode, config.HTTP, config.TLSAcme, config.TLSSecretName, config.TLSUseWildcard, config.IngressClass, client, namespace)
+	if err != nil {
+		return nil, errors.Wrap(err, "failed to create new strategy")
+	}
+
+	if len(config.ApiServerProtocol) == 0 {
+		config.ApiServerProtocol = kubernetesServiceProtocol(client)
+	}
+
 	handlers := cache.ResourceEventHandlerFuncs{
 		AddFunc: func(obj interface{}) {
 			svc := obj.(*v1.Service)
-			if svc.Labels[exposestrategy.ExposeLabel.Key] == exposestrategy.ExposeLabel.Value ||
-				svc.Annotations[exposestrategy.ExposeAnnotation.Key] == exposestrategy.ExposeAnnotation.Value ||
-				svc.Annotations[exposestrategy.InjectAnnotation.Key] == exposestrategy.InjectAnnotation.Value {
-				if !isServiceWhitelisted(svc.GetName(), config) {
+			if shouldExposeService(svc) {
+				if !isServiceWhitelisted(svc.Name, config) {
 					return
 				}
 				err := strategy.Add(svc)
@@ -73,11 +106,10 @@ func RunController(client kubernetes.Interface, resyncPeriod time.Duration, name
 			}
 		},
 		UpdateFunc: func(oldObj interface{}, newObj interface{}) {
+			oldSvc := oldObj.(*v1.Service)
 			svc := newObj.(*v1.Service)
-			if svc.Labels[exposestrategy.ExposeLabel.Key] == exposestrategy.ExposeLabel.Value ||
-				svc.Annotations[exposestrategy.ExposeAnnotation.Key] == exposestrategy.ExposeAnnotation.Value ||
-				svc.Annotations[exposestrategy.InjectAnnotation.Key] == exposestrategy.InjectAnnotation.Value {
-				if !isServiceWhitelisted(svc.GetName(), config) {
+			if shouldExposeService(svc) {
+				if !isServiceWhitelisted(svc.Name, config) {
 					return
 				}
 				err := strategy.Add(svc)
@@ -85,32 +117,23 @@ func RunController(client kubernetes.Interface, resyncPeriod time.Duration, name
 					glog.Errorf("Add failed: %v", err)
 				}
 				updateRelatedResources(client, svc, config)
-			} else {
-				oldSvc := oldObj.(*v1.Service)
-				if oldSvc.Labels[exposestrategy.ExposeLabel.Key] == exposestrategy.ExposeLabel.Value ||
-					oldSvc.Annotations[exposestrategy.ExposeAnnotation.Key] == exposestrategy.ExposeAnnotation.Value ||
-					svc.Annotations[exposestrategy.InjectAnnotation.Key] == exposestrategy.InjectAnnotation.Value {
-					if !isServiceWhitelisted(svc.GetName(), config) {
-						return
-					}
-					err := strategy.Remove(svc)
-					if err != nil {
-						glog.Errorf("Remove failed: %v", err)
-					}
+			} else if shouldExposeService(oldSvc) {
+				if !isServiceWhitelisted(oldSvc.Name, config) {
+					return
+				}
+				err := strategy.Remove(oldSvc)
+				if err != nil {
+					glog.Errorf("Remove failed: %v", err)
 				}
 			}
 		},
 		DeleteFunc: func(obj interface{}) {
-			svc, ok := obj.(cache.DeletedFinalStateUnknown)
-			if ok {
-				// service key is in the form namespace/name
-				split := strings.Split(svc.Key, "/")
-				ns := split[0]
-				name := split[1]
-				if !isServiceWhitelisted(name, config) {
+			svc := obj.(*v1.Service)
+			if shouldExposeService(svc) {
+				if !isServiceWhitelisted(svc.Name, config) {
 					return
 				}
-				err := strategy.Remove(&v1.Service{ObjectMeta: metav1.ObjectMeta{Namespace: ns, Name: name}})
+				err := strategy.Remove(svc)
 				if err != nil {
 					glog.Errorf("Remove failed: %v", err)
 				}
@@ -120,30 +143,25 @@ func RunController(client kubernetes.Interface, resyncPeriod time.Duration, name
 
 	services := client.CoreV1().Services(namespace)
 
-	if daemon {
-		_, controller := cache.NewInformer(
-			&cache.ListWatch{
-				ListFunc:  func(options metav1.ListOptions) (runtime.Object, error) {
-					return services.List(options)
-				},
-				WatchFunc: services.Watch,
+	_, controller := cache.NewInformer(
+		&cache.ListWatch{
+			ListFunc:  func(options metav1.ListOptions) (runtime.Object, error) {
+				return services.List(options)
 			},
-			&v1.Service{},
-			resyncPeriod,
-			handlers,
-		)
-		controller.Run(wait.NeverStop)
-	} else {
-		list, err := services.List(metav1.ListOptions{})
-		if err != nil {
-			return errors.Wrap(err, "failed getting the list of services")
-		}
-		for _, svc := range list.Items{
-			handlers.AddFunc(svc)
-		}
-	}
+			WatchFunc: services.Watch,
+		},
+		&v1.Service{},
+		resyncPeriod,
+		handlers,
+	)
 
-	return nil
+	return controller, nil
+}
+
+func shouldExposeService(svc *v1.Service) bool {
+	return svc.Labels[exposestrategy.ExposeLabel.Key] == exposestrategy.ExposeLabel.Value ||
+		svc.Annotations[exposestrategy.ExposeAnnotation.Key] == exposestrategy.ExposeAnnotation.Value ||
+		svc.Annotations[exposestrategy.InjectAnnotation.Key] == exposestrategy.InjectAnnotation.Value
 }
 
 // isServiceWhitelisted checks if a service is white-listed in the controller configuration, allow all services if

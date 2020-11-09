@@ -98,6 +98,32 @@ func NewIngressStrategy(client kubernetes.Interface, namespace string, domain, i
 	}, nil
 }
 
+func CleanIngressStrategy(client kubernetes.Interface, namespace string) error {
+	// list all existing ingresses
+	selector, err := metav1.LabelSelectorAsSelector(&metav1.LabelSelector{
+		MatchLabels: map[string]string{"provider": "fabric8"},
+	})
+	if err != nil {
+		return errors.Wrap(err, "failed to buils selector")
+	}
+	listOptions := metav1.ListOptions{
+		LabelSelector: selector.String(),
+	}
+	list, err := client.ExtensionsV1beta1().Ingresses(namespace).List(listOptions)
+	if err != nil {
+		return errors.Wrap(err, "failed to list ingresses")
+	}
+	// check which service is referencing each ingress
+	for index := range list.Items {
+		ingress := &list.Items[index]
+		svc, del := getIngressService(ingress)
+		if del || svc != "" {
+			deleteIngress(client, ingress)
+		}
+	}
+	return nil
+}
+
 func (s *IngressStrategy) Add(svc *v1.Service) error {
 	// choose the name of the ingress
 	appName := svc.Annotations["fabric8.io/ingress.name"]

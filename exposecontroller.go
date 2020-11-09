@@ -1,18 +1,25 @@
 package main
 
 import (
+	"encoding/json"
 	"flag"
+	"fmt"
+	"net/http"
+	"net/http/pprof"
 	"os"
 	"strings"
 	"time"
 
 	"github.com/golang/glog"
 	"github.com/olli-ai/exposecontroller/controller"
+	"github.com/olli-ai/exposecontroller/exposestrategy"
 	"github.com/olli-ai/exposecontroller/version"
 
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/util/wait"
 	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/rest"
+	"k8s.io/client-go/tools/cache"
 	"k8s.io/client-go/tools/clientcmd"
 )
 
@@ -164,32 +171,25 @@ func main() {
 	}
 
 	if *cleanup {
-		ingress, err := kubeClient.ExtensionsV1beta1().Ingresses(watchNamespaces).List(metav1.ListOptions{})
+		err = exposestrategy.CleanIngressStrategy(kubeClient, watchNamespaces)
 		if err != nil {
-			glog.Fatalf("Could not get ingress rules in namespace %s %v", watchNamespaces, err)
-		}
-
-		for _, i := range ingress.Items {
-			if i.Annotations["fabric8.io/generated-by"] == "exposecontroller" {
-				if filter == nil || strings.Contains(i.Name, *filter) {
-					glog.Infof("Deleting ingress %s", i.Name)
-					err := kubeClient.ExtensionsV1beta1().Ingresses(watchNamespaces).Delete(i.Name, nil)
-					if err != nil {
-						glog.Fatalf("Could not find the current namespace: %v", err)
-					}
-				}
-			}
+			glog.Fatalf("Could not clean: %v", err)
 		}
 		return
 	}
 
 	if *daemon {
 		glog.Infof("Watching services in namespaces: `%s`", watchNamespaces)
+		contr, err := controller.ControllerDaemon(kubeClient, *resyncPeriod, watchNamespaces, controllerConfig)
+		if err == nil {
+			go registerHandlers(contr)
+			contr.Run(wait.NeverStop)
+		}
 	} else {
 		glog.Infof("Running in : `%s`", watchNamespaces)
+		err = controller.RunController(kubeClient, watchNamespaces, controllerConfig)
 	}
 
-	err = controller.RunController(kubeClient, *resyncPeriod, watchNamespaces, *daemon, controllerConfig)
 	if err != nil {
 		glog.Fatalf("%s", err)
 	}
@@ -227,4 +227,34 @@ func tryFindConfig(kubeClient kubernetes.Interface, ns string) *controller.Confi
 		}
 	}
 	return controllerConfig
+}
+
+func registerHandlers(controller cache.Controller) {
+	mux := http.NewServeMux()
+	mux.HandleFunc("/healthz", func(res http.ResponseWriter, req *http.Request) {
+		ready := controller.HasSynced()
+
+		if ready {
+			res.WriteHeader(http.StatusServiceUnavailable)
+		} else {
+			res.WriteHeader(http.StatusOK)
+		}
+
+		enc := json.NewEncoder(res)
+		_ = enc.Encode(map[string]interface{}{
+			"ready": ready,
+		})
+	})
+
+	if *profiling {
+		mux.HandleFunc("/debug/pprof/", pprof.Index)
+		mux.HandleFunc("/debug/pprof/profile", pprof.Profile)
+		mux.HandleFunc("/debug/pprof/symbol", pprof.Symbol)
+	}
+
+	server := &http.Server{
+		Addr:    fmt.Sprintf(":%v", *healthzPort),
+		Handler: mux,
+	}
+	glog.Fatal(server.ListenAndServe())
 }

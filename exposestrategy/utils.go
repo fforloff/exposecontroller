@@ -10,7 +10,7 @@ import (
 	"github.com/pkg/errors"
 
 	"k8s.io/api/core/v1"
-	"k8s.io/apimachinery/pkg/runtime"
+	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/apimachinery/pkg/util/strategicpatch"
 )
 
@@ -72,25 +72,40 @@ func removeServiceAnnotation(svc *v1.Service) *v1.Service {
 	return svc
 }
 
-func createPatch(a runtime.Object, b runtime.Object, dataStruct interface{}) ([]byte, error) {
-	aBytes, err := json.Marshal(a)
-	if err != nil {
-		return nil, errors.Wrapf(err, "failed to encode object: %v", a)
+var patchType types.PatchType = types.StrategicMergePatchType
+var emptyPatch []byte = []byte("{}")
+
+func createServicePatch(origin, modified *v1.Service) ([]byte, error) {
+	// add another annotations to avoid a patch that erases them
+	copy := origin.DeepCopy()
+	if copy.Annotations == nil {
+		copy.Annotations = map[string]string{"#": "#"}
+	} else {
+		copy.Annotations["#"] = "#"
 	}
-	bBytes, err := json.Marshal(b)
-	if err != nil {
-		return nil, errors.Wrapf(err, "failed to encode object: %v", b)
+	if modified.Annotations == nil {
+		modified.Annotations = map[string]string{"#": "#"}
+	} else {
+		modified.Annotations["#"] = "#"
 	}
 
-	if bytes.Compare(aBytes, bBytes) == 0 {
-		return nil, nil
+	originBytes, err := json.Marshal(copy)
+	if err != nil {
+		return nil, errors.Wrapf(err, "failed to encode object: %v", copy)
+	}
+	modifiedBytes, err := json.Marshal(modified)
+	if err != nil {
+		return nil, errors.Wrapf(err, "failed to encode object: %v", modified)
 	}
 
-	patch, err := strategicpatch.CreateTwoWayMergePatch(aBytes, bBytes, dataStruct)
+	patch, err := strategicpatch.CreateTwoWayMergePatch(originBytes, modifiedBytes, &v1.Service{})
 	if err != nil {
 		return nil, errors.Wrap(err, "failed to create patch")
 	}
 
+	if bytes.Equal(patch, emptyPatch) {
+		return nil, nil
+	}
 	return patch, nil
 }
 

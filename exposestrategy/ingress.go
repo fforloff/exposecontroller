@@ -14,7 +14,6 @@ import (
 	"k8s.io/api/extensions/v1beta1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/apimachinery/pkg/util/intstr"
 	"k8s.io/client-go/kubernetes"
 )
@@ -306,12 +305,12 @@ func (s *IngressStrategy) Add(svc *v1.Service) error {
 	} else {
 		clone, err = addServiceAnnotationWithProtocol(clone, fullHostName, "http")
 	}
-
 	if err != nil {
 		return errors.Wrapf(err, "failed to add annotation to service %s/%s",
 			svc.Namespace, svc.Name)
 	}
-	patch, err := createPatch(svc, clone, v1.Service{})
+
+	patch, err := createServicePatch(svc, clone)
 	if err != nil {
 		return errors.Wrapf(err, "failed to create patch for service %s/%s",
 			svc.Namespace, svc.Name)
@@ -319,7 +318,7 @@ func (s *IngressStrategy) Add(svc *v1.Service) error {
 	// patch the service
 	if patch != nil {
 		_, err = s.client.CoreV1().Services(svc.Namespace).
-			Patch(svc.Name, types.StrategicMergePatchType, patch)
+			Patch(svc.Name, patchType, patch)
 		if err != nil {
 			return errors.Wrapf(err, "failed to send patch %s/%s",
 				svc.Namespace, svc.Name)

@@ -167,21 +167,44 @@ func (s *AmbassadorStrategy) Add(svc *v1.Service) error {
 		fmt.Fprintf(joinedAnnotations, "%s", string(yamlAnnotation))
 	}
 
-	svc.Annotations["getambassador.io/config"] = joinedAnnotations.String()
+	clone := svc.DeepCopy()
+	clone.Annotations["getambassador.io/config"] = joinedAnnotations.String()
 
-	_, err = s.client.CoreV1().Services(svc.Namespace).Update(svc)
+	patch, err := createServicePatch(svc, clone)
 	if err != nil {
-		return errors.Wrapf(err, "failed to patch the service %s/%s", svc.Namespace, appName)
+		return errors.Wrapf(err, "failed to create patch for service %s/%s",
+			svc.Namespace, svc.Name)
 	}
+	// patch the service
+	if patch != nil {
+		_, err = s.client.CoreV1().Services(svc.Namespace).
+			Patch(svc.Name, patchType, patch)
+		if err != nil {
+			return errors.Wrapf(err, "failed to send patch %s/%s",
+				svc.Namespace, svc.Name)
+		}
+	}
+
 	return nil
 }
 
 func (s *AmbassadorStrategy) Remove(svc *v1.Service) error {
+	clone := svc.DeepCopy()
 	delete(svc.Annotations, "getambassador.io/config")
 
-	_, err := s.client.CoreV1().Services(svc.Namespace).Update(svc)
+	patch, err := createServicePatch(svc, clone)
 	if err != nil {
-		return errors.Wrapf(err, "failed to patch the service %s/%s", svc.Namespace, svc.GetName())
+		return errors.Wrapf(err, "failed to create patch for service %s/%s",
+			svc.Namespace, svc.Name)
+	}
+	// patch the service
+	if patch != nil {
+		_, err = s.client.CoreV1().Services(svc.Namespace).
+			Patch(svc.Name, patchType, patch)
+		if err != nil {
+			return errors.Wrapf(err, "failed to send patch %s/%s",
+				svc.Namespace, svc.Name)
+		}
 	}
 	return nil
 }

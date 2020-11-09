@@ -9,7 +9,6 @@ import (
 
 	"k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/client-go/kubernetes"
 )
 
@@ -100,13 +99,13 @@ func (s *NodePortStrategy) Add(svc *v1.Service) error {
 	if err != nil {
 		return errors.Wrap(err, "failed to add service annotation")
 	}
-	patch, err := createPatch(svc, clone, v1.Service{})
+	patch, err := createServicePatch(svc, clone)
 	if err != nil {
 		return errors.Wrap(err, "failed to create patch")
 	}
 	if patch != nil {
 		_, err = s.client.CoreV1().Services(svc.Namespace).
-			Patch(svc.Name, types.StrategicMergePatchType, patch)
+			Patch(svc.Name, patchType, patch)
 		if err != nil {
 			return errors.Wrap(err, fmt.Sprintf("failed to send patch for %s/%s patch %s", svc.Namespace, svc.Name, string(patch)))
 		}
@@ -119,13 +118,13 @@ func (s *NodePortStrategy) Remove(svc *v1.Service) error {
 	clone := svc.DeepCopy()
 	clone = removeServiceAnnotation(clone)
 
-	patch, err := createPatch(svc, clone, v1.Service{})
+	patch, err := createServicePatch(svc, clone)
 	if err != nil {
 		return errors.Wrap(err, "failed to create patch")
 	}
 	if patch != nil {
 		_, err = s.client.CoreV1().Services(clone.Namespace).
-			Patch(clone.Name, types.StrategicMergePatchType, patch)
+			Patch(clone.Name, patchType, patch)
 		if err != nil {
 			return errors.Wrap(err, "failed to send patch")
 		}

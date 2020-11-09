@@ -13,7 +13,6 @@ import (
 	"github.com/golang/glog"
 	"github.com/olli-ai/exposecontroller/controller"
 	"github.com/olli-ai/exposecontroller/exposestrategy"
-	"github.com/olli-ai/exposecontroller/version"
 
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/util/wait"
@@ -54,8 +53,6 @@ var (
 
 func main() {
 	flag.Parse()
-
-	glog.Infof("Using build: %v", version.Version)
 
 	var restClientConfig *rest.Config
 	var err error

@@ -235,7 +235,7 @@ func (s *IngressStrategy) Add(svc *v1.Service) error {
 		err := yaml.Unmarshal([]byte(annotationsString), ingressAnnotations)
 		if err != nil {
 			return errors.Wrapf(err, "failed to parse annotation \"fabric8.io/ingress.annotations\" in service %s/%s",
-				exposePort, svc.Namespace, svc.Name)
+				svc.Namespace, svc.Name)
 		}
 	}
 	// build the ingress

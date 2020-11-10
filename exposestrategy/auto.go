@@ -21,24 +21,24 @@ const (
 	stackpointIPEnvVar = "BALANCER_IP"
 )
 
-func NewAutoStrategy(exposer, domain, internalDomain, urltemplate string, nodeIP, pathMode string, http, tlsAcme bool, tlsSecretName string, tlsUseWildcard bool, ingressClass string, client kubernetes.Interface, namespace string) (ExposeStrategy, error) {
-
-	exposer, err := getAutoDefaultExposeRule(client)
+func NewAutoStrategy(client kubernetes.Interface, config *ExposeStrategyConfig) (ExposeStrategy, error) {
+	var err error
+	config.Exposer, err = getAutoDefaultExposeRule(client)
 	if err != nil {
 		return nil, errors.Wrap(err, "failed to automatically get exposer rule.  consider setting 'exposer' type in config.yml")
 	}
-	glog.Infof("Using exposer strategy: %s", exposer)
+	glog.Infof("Using exposer strategy: %s", config.Exposer)
 
 	// only try to get domain if we need wildcard dns and one wasn't given to us
-	if len(domain) == 0 && (strings.EqualFold(ingress, exposer)) {
-		domain, err = getAutoDefaultDomain(client)
+	if config.Domain == "" && (strings.EqualFold(ingress, config.Exposer)) {
+		config.Domain, err = getAutoDefaultDomain(client)
 		if err != nil {
 			return nil, errors.Wrap(err, "failed to get a domain")
 		}
-		glog.Infof("Using domain: %s", domain)
+		glog.Infof("Using domain: %s", config.Domain)
 	}
 
-	return New(exposer, domain, internalDomain, urltemplate, nodeIP, pathMode, http, tlsAcme, tlsSecretName, tlsUseWildcard, ingressClass, client, namespace)
+	return New(client, config)
 }
 
 func getAutoDefaultExposeRule(c kubernetes.Interface) (string, error) {

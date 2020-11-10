@@ -3,7 +3,6 @@ package exposestrategy
 import (
 	"strings"
 
-	"github.com/golang/glog"
 	"github.com/pkg/errors"
 
 	"k8s.io/api/core/v1"
@@ -11,8 +10,25 @@ import (
 )
 
 type ExposeStrategy interface {
+	Sync() error
 	Add(svc *v1.Service) error
 	Remove(svc *v1.Service) error
+}
+
+type ExposeStrategyConfig struct {
+	Exposer        string
+	Namespace      string
+	NamePrefix     string
+	Domain         string
+	InternalDomain string
+	NodeIP         string
+	TLSSecretName  string
+	TLSUseWildcard bool
+	HTTP           bool
+	TLSAcme        bool
+	URLTemplate    string
+	PathMode       string
+	IngressClass   string
 }
 
 type Label struct {
@@ -30,40 +46,32 @@ var (
 	ApiServicePathAnnotationKey   = "api.service.kubernetes.io/path"
 )
 
-func New(exposer, domain, internalDomain, urltemplate, nodeIP, pathMode string, http, tlsAcme bool, tlsSecretName string, tlsUseWildcard bool, ingressClass string, client kubernetes.Interface, namespace string) (ExposeStrategy, error) {
-	switch strings.ToLower(exposer) {
-	case "ambassador":
-		strategy, err := NewAmbassadorStrategy(client, domain, http, tlsAcme, tlsSecretName, urltemplate, pathMode)
-		if err != nil {
-			return nil, errors.Wrap(err, "failed to create ambassador expose strategy")
-		}
-		return strategy, nil
-	case "loadbalancer":
-		strategy, err := NewLoadBalancerStrategy(client)
-		if err != nil {
-			return nil, errors.Wrap(err, "failed to create load balancer expose strategy")
-		}
-		return strategy, nil
-	case "nodeport":
-		strategy, err := NewNodePortStrategy(client, nodeIP)
-		if err != nil {
-			return nil, errors.Wrap(err, "failed to create node port expose strategy")
-		}
-		return strategy, nil
-	case "ingress":
-		glog.Infof("stratagy.New %v", http)
-		strategy, err := NewIngressStrategy(client, namespace, domain, internalDomain, http, tlsAcme, tlsSecretName, tlsUseWildcard, urltemplate, pathMode, ingressClass)
-		if err != nil {
-			return nil, errors.Wrap(err, "failed to create ingress expose strategy")
-		}
-		return strategy, nil
-	case "":
-		strategy, err := NewAutoStrategy(exposer, domain, internalDomain, urltemplate, nodeIP, pathMode, http, tlsAcme, tlsSecretName, tlsUseWildcard, ingressClass, client, namespace)
-		if err != nil {
-			return nil, errors.Wrap(err, "failed to create auto expose strategy")
-		}
-		return strategy, nil
-	default:
-		return nil, errors.Errorf("unknown expose strategy '%s', must be one of %v", exposer, []string{"Auto", "Ingress", "Route", "NodePort", "LoadBalancer"})
+type exposeStrategyFunc = func(client kubernetes.Interface, config *ExposeStrategyConfig) (ExposeStrategy, error)
+var exposeStrategyFuncs map[string]exposeStrategyFunc = map[string]exposeStrategyFunc{
+	"ambassador":   NewAmbassadorStrategy,
+	"ingress":      NewIngressStrategy,
+	"loadbalancer": NewLoadBalancerStrategy,
+	"nodeport":     NewNodePortStrategy,
+}
+
+func New(client kubernetes.Interface, config *ExposeStrategyConfig) (ExposeStrategy, error) {
+	exposer := strings.ToLower(config.Exposer)
+	if exposer == "" || exposer == "auto" {
+		return NewAutoStrategy(client, config)
 	}
+
+	f, ok := exposeStrategyFuncs[exposer]
+	if ok {
+		strategy, err := f(client, config)
+		if err != nil {
+			return nil, errors.Wrapf(err, "failed to create %s expose strategy", exposer)
+		}
+		return strategy, nil
+	}
+	strategies := make([]string, 1, 1+len(exposeStrategyFuncs))
+	strategies[0] = "auto"
+	for s := range exposeStrategyFuncs {
+		strategies = append(strategies, s)
+	}
+	return nil, errors.Errorf("unknown expose strategy \"%s\", must be one of \"%s\"", exposer, strings.Join(strategies, "\", \""))
 }

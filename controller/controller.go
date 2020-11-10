@@ -44,11 +44,9 @@ const (
 
 func RunController(client kubernetes.Interface, namespace string, config *Config) error {
 
-	glog.Infof("NewController %v", config.HTTP)
-
-	strategy, err := exposestrategy.New(config.Exposer, config.Domain, config.InternalDomain, config.UrlTemplate, config.NodeIP, config.PathMode, config.HTTP, config.TLSAcme, config.TLSSecretName, config.TLSUseWildcard, config.IngressClass, client, namespace)
+	strategy, err := getStrategy(client, namespace, config)
 	if err != nil {
-		return errors.Wrap(err, "failed to create new strategy")
+		return err
 	}
 
 	if len(config.ApiServerProtocol) == 0 {
@@ -57,6 +55,7 @@ func RunController(client kubernetes.Interface, namespace string, config *Config
 
 	services := client.CoreV1().Services(namespace)
 
+	strategy.Sync()
 	list, err := services.List(metav1.ListOptions{})
 	if err != nil {
 		return errors.Wrap(err, "failed getting the list of services")
@@ -72,6 +71,14 @@ func RunController(client kubernetes.Interface, namespace string, config *Config
 				glog.Errorf("Add failed: %v", err)
 			}
 			updateRelatedResources(client, svc, config)
+		} else {
+			if !isServiceWhitelisted(svc.Name, config) {
+				continue
+			}
+			err := strategy.Remove(svc)
+			if err != nil {
+				glog.Errorf("Remove failed: %v", err)
+			}
 		}
 	}
 
@@ -80,15 +87,23 @@ func RunController(client kubernetes.Interface, namespace string, config *Config
 
 func ControllerDaemon(client kubernetes.Interface, resyncPeriod time.Duration, namespace string, config *Config) (cache.Controller, error) {
 
-	glog.Infof("NewController %v", config.HTTP)
-
-	strategy, err := exposestrategy.New(config.Exposer, config.Domain, config.InternalDomain, config.UrlTemplate, config.NodeIP, config.PathMode, config.HTTP, config.TLSAcme, config.TLSSecretName, config.TLSUseWildcard, config.IngressClass, client, namespace)
+	strategy, err := getStrategy(client, namespace, config)
 	if err != nil {
-		return nil, errors.Wrap(err, "failed to create new strategy")
+		return nil, err
 	}
 
 	if len(config.ApiServerProtocol) == 0 {
 		config.ApiServerProtocol = kubernetesServiceProtocol(client)
+	}
+
+	var controller cache.Controller
+	isSyncing := false
+	needCheckSynced := false
+	checkSynced := func() {
+		needCheckSynced = true
+		if isSyncing && !controller.HasSynced() {
+			isSyncing = false
+		}
 	}
 
 	handlers := cache.ResourceEventHandlerFuncs{
@@ -103,6 +118,18 @@ func ControllerDaemon(client kubernetes.Interface, resyncPeriod time.Duration, n
 					glog.Errorf("Add failed: %v", err)
 				}
 				updateRelatedResources(client, svc, config)
+			} else if isSyncing {
+				if !isServiceWhitelisted(svc.Name, config) {
+					return
+				}
+				err := strategy.Remove(svc)
+				if err != nil {
+					glog.Errorf("Remove failed: %v", err)
+				}
+				if (needCheckSynced) {
+					needCheckSynced = false
+					go checkSynced()
+				}
 			}
 		},
 		UpdateFunc: func(oldObj interface{}, newObj interface{}) {
@@ -143,10 +170,14 @@ func ControllerDaemon(client kubernetes.Interface, resyncPeriod time.Duration, n
 
 	services := client.CoreV1().Services(namespace)
 
-	_, controller := cache.NewInformer(
+	_, controller = cache.NewInformer(
 		&cache.ListWatch{
 			ListFunc:  func(options metav1.ListOptions) (runtime.Object, error) {
-				return services.List(options)
+				strategy.Sync()
+				list, err := services.List(options)
+				isSyncing = true
+				needCheckSynced = true
+				return list, err
 			},
 			WatchFunc: services.Watch,
 		},
@@ -156,6 +187,28 @@ func ControllerDaemon(client kubernetes.Interface, resyncPeriod time.Duration, n
 	)
 
 	return controller, nil
+}
+
+func getStrategy(client kubernetes.Interface, namespace string, config *Config) (exposestrategy.ExposeStrategy, error) {
+	strategy, err := exposestrategy.New(client, &exposestrategy.ExposeStrategyConfig{
+		Exposer:        config.Exposer,
+		Namespace:      namespace,
+		NamePrefix:     config.NamePrefix,
+		Domain:         config.Domain,
+		InternalDomain: config.InternalDomain,
+		NodeIP:         config.NodeIP,
+		TLSSecretName:  config.TLSSecretName,
+		TLSUseWildcard: config.TLSUseWildcard,
+		HTTP:           config.HTTP,
+		TLSAcme:        config.TLSAcme,
+		URLTemplate:    config.URLTemplate,
+		PathMode:       config.PathMode,
+		IngressClass:   config.IngressClass,
+	})
+	if err != nil {
+		return nil, errors.Wrap(err, "failed to create new strategy")
+	}
+	return strategy, nil
 }
 
 func shouldExposeService(svc *v1.Service) bool {

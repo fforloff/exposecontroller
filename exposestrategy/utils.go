@@ -76,7 +76,7 @@ var patchType types.PatchType = types.StrategicMergePatchType
 var emptyPatch []byte = []byte("{}")
 
 func createServicePatch(origin, modified *v1.Service) ([]byte, error) {
-	// add another annotations to avoid a patch that erases them
+	// add another annotations to avoid a patch that deletes all annotations
 	copy := origin.DeepCopy()
 	if copy.Annotations == nil {
 		copy.Annotations = map[string]string{"#": "#"}

@@ -29,36 +29,37 @@ type AmbassadorStrategy struct {
 	pathMode      string
 }
 
-var _ ExposeStrategy = &AmbassadorStrategy{}
-
-func NewAmbassadorStrategy(client kubernetes.Interface, domain string, http, tlsAcme bool, tlsSecretName, urltemplate, pathMode string) (*AmbassadorStrategy, error) {
-	glog.Infof("NewAmbassadorStrategy 1 %v", http)
+func NewAmbassadorStrategy(client kubernetes.Interface, config *ExposeStrategyConfig) (ExposeStrategy, error) {
 
 	var err error
-	if len(domain) == 0 {
-		domain, err = getAutoDefaultDomain(client)
+	if len(config.Domain) == 0 {
+		config.Domain, err = getAutoDefaultDomain(client)
 		if err != nil {
 			return nil, errors.Wrap(err, "failed to get a domain")
 		}
 	}
-	glog.Infof("Using domain: %s", domain)
+	glog.Infof("Using domain: %s", config.Domain)
 
 	var urlformat string
-	urlformat, err = getURLFormat(urltemplate)
+	urlformat, err = getURLFormat(config.URLTemplate)
 	if err != nil {
 		return nil, errors.Wrap(err, "failed to get a url format")
 	}
-	glog.Infof("Using url template [%s] format [%s]", urltemplate, urlformat)
+	glog.Infof("Using url template [%s] format [%s]", config.URLTemplate, urlformat)
 
 	return &AmbassadorStrategy{
 		client:        client,
-		domain:        domain,
-		http:          http,
-		tlsAcme:       tlsAcme,
-		tlsSecretName: tlsSecretName,
+		domain:        config.Domain,
+		http:          config.HTTP,
+		tlsAcme:       config.TLSAcme,
+		tlsSecretName: config.TLSSecretName,
 		urltemplate:   urlformat,
-		pathMode:      pathMode,
+		pathMode:      config.PathMode,
 	}, nil
+}
+
+func (s *AmbassadorStrategy) Sync() error {
+	return nil
 }
 
 func (s *AmbassadorStrategy) Add(svc *v1.Service) error {

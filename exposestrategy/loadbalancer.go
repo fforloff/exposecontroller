@@ -11,12 +11,14 @@ type LoadBalancerStrategy struct {
 	client  kubernetes.Interface
 }
 
-var _ ExposeStrategy = &LoadBalancerStrategy{}
-
-func NewLoadBalancerStrategy(client kubernetes.Interface) (*LoadBalancerStrategy, error) {
+func NewLoadBalancerStrategy(client kubernetes.Interface, config *ExposeStrategyConfig) (ExposeStrategy, error) {
 	return &LoadBalancerStrategy{
 		client:  client,
 	}, nil
+}
+
+func (s *LoadBalancerStrategy) Sync() error {
+	return nil
 }
 
 func (s *LoadBalancerStrategy) Add(svc *v1.Service) error {

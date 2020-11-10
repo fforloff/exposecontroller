@@ -18,12 +18,10 @@ type NodePortStrategy struct {
 	nodeIP string
 }
 
-var _ ExposeStrategy = &NodePortStrategy{}
-
 const ExternalIPLabel = "fabric8.io/externalIP"
 
-func NewNodePortStrategy(client kubernetes.Interface, nodeIP string) (*NodePortStrategy, error) {
-	ip := nodeIP
+func NewNodePortStrategy(client kubernetes.Interface, config *ExposeStrategyConfig) (ExposeStrategy, error) {
+	ip := config.NodeIP
 	if len(ip) == 0 {
 		l, err := client.CoreV1().Nodes().List(metav1.ListOptions{})
 		if err != nil {
@@ -67,6 +65,10 @@ func getNodeHostIP(node v1.Node) (net.IP, error) {
 		return net.ParseIP(addresses[0].Address), nil
 	}
 	return nil, fmt.Errorf("host IP unknown; known addresses: %v", addresses)
+}
+
+func (s *NodePortStrategy) Sync() error {
+	return nil
 }
 
 func (s *NodePortStrategy) Add(svc *v1.Service) error {

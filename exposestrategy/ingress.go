@@ -23,8 +23,9 @@ const (
 )
 
 type IngressStrategy struct {
-	client  kubernetes.Interface
-
+	client         kubernetes.Interface
+	namespace      string
+	namePrefix     string
 	domain         string
 	internalDomain string
 	tlsSecretName  string
@@ -37,64 +38,37 @@ type IngressStrategy struct {
 	existing       map[string][]string
 }
 
-var _ ExposeStrategy = &IngressStrategy{}
-
-func NewIngressStrategy(client kubernetes.Interface, namespace string, domain, internalDomain string, http, tlsAcme bool, tlsSecretName string, tlsUseWildcard bool, urltemplate, pathMode string, ingressClass string) (*IngressStrategy, error) {
-	glog.Infof("NewIngressStrategy 1 %v", http)
+func NewIngressStrategy(client kubernetes.Interface, config *ExposeStrategyConfig) (ExposeStrategy, error) {
 
 	var err error
-	if len(domain) == 0 {
-		domain, err = getAutoDefaultDomain(client)
+	if len(config.Domain) == 0 {
+		config.Domain, err = getAutoDefaultDomain(client)
 		if err != nil {
 			return nil, errors.Wrap(err, "failed to get a domain")
 		}
 	}
-	glog.Infof("Using domain: %s", domain)
+	glog.Infof("Using domain: %s", config.Domain)
 
 	var urlformat string
-	urlformat, err = getURLFormat(urltemplate)
+	urlformat, err = getURLFormat(config.URLTemplate)
 	if err != nil {
 		return nil, errors.Wrap(err, "failed to get a url format")
 	}
-	glog.Infof("Using url template [%s] format [%s]", urltemplate, urlformat)
-	// list all existing ingresses
-	selector, err := metav1.LabelSelectorAsSelector(&metav1.LabelSelector{
-		MatchLabels: map[string]string{"provider": "fabric8"},
-	})
-	if err != nil {
-		return nil, errors.Wrap(err, "failed to buils selector")
-	}
-	listOptions := metav1.ListOptions{
-		LabelSelector: selector.String(),
-	}
-	list, err := client.ExtensionsV1beta1().Ingresses(namespace).List(listOptions)
-	if err != nil {
-		return nil, errors.Wrap(err, "failed to list ingresses")
-	}
-	// check which service is referencing each ingress
-	existing := map[string][]string{}
-	for index := range list.Items {
-		ingress := &list.Items[index]
-		svc, del := getIngressService(ingress)
-		if del {
-			deleteIngress(client, ingress)
-		} else if svc != "" {
-			existing[svc] = append(existing[svc], ingress.Name)
-		}
-	}
+	glog.Infof("Using url template [%s] format [%s]", config.URLTemplate, urlformat)
 
 	return &IngressStrategy{
 		client:         client,
-		domain:         domain,
-		internalDomain: internalDomain,
-		http:           http,
-		tlsAcme:        tlsAcme,
-		tlsSecretName:  tlsSecretName,
-		tlsUseWildcard: tlsUseWildcard,
+		namespace:      config.Namespace,
+		namePrefix:     config.NamePrefix,
+		domain:         config.Domain,
+		internalDomain: config.InternalDomain,
+		http:           config.HTTP,
+		tlsAcme:        config.TLSAcme,
+		tlsSecretName:  config.TLSSecretName,
+		tlsUseWildcard: config.TLSUseWildcard,
 		urltemplate:    urlformat,
-		pathMode:       pathMode,
-		ingressClass:   ingressClass,
-		existing:       existing,
+		pathMode:       config.PathMode,
+		ingressClass:   config.IngressClass,
 	}, nil
 }
 
@@ -104,7 +78,7 @@ func CleanIngressStrategy(client kubernetes.Interface, namespace string) error {
 		MatchLabels: map[string]string{"provider": "fabric8"},
 	})
 	if err != nil {
-		return errors.Wrap(err, "failed to buils selector")
+		return errors.Wrap(err, "failed to build selector")
 	}
 	listOptions := metav1.ListOptions{
 		LabelSelector: selector.String(),
@@ -124,14 +98,52 @@ func CleanIngressStrategy(client kubernetes.Interface, namespace string) error {
 	return nil
 }
 
+func (s *IngressStrategy) Sync() error {
+	// list all existing ingresses
+	selector, err := metav1.LabelSelectorAsSelector(&metav1.LabelSelector{
+		MatchLabels: map[string]string{"provider": "fabric8"},
+	})
+	if err != nil {
+		return  errors.Wrap(err, "failed to build selector")
+	}
+	listOptions := metav1.ListOptions{
+		LabelSelector: selector.String(),
+	}
+	list, err := s.client.ExtensionsV1beta1().Ingresses(s.namespace).List(listOptions)
+	if err != nil {
+		return errors.Wrap(err, "failed to list ingresses")
+	}
+	// check which service is referencing each ingress
+	existing := map[string][]string{}
+	for index := range list.Items {
+		ingress := &list.Items[index]
+		svc, del := getIngressService(ingress)
+		if del {
+			deleteIngress(s.client, ingress)
+		} else if svc != "" {
+			existing[svc] = append(existing[svc], ingress.Name)
+		}
+	}
+	s.existing = existing
+	return nil
+}
+
 func (s *IngressStrategy) Add(svc *v1.Service) error {
 	// choose the name of the ingress
 	appName := svc.Annotations["fabric8.io/ingress.name"]
 	if appName == "" {
 		if svc.Labels["release"] != "" {
-			appName = strings.Replace(svc.Name, svc.Labels["release"]+"-", "", 1)
+			appName = strings.TrimPrefix(svc.Name, svc.Labels["release"]+"-")
 		} else {
 			appName = svc.Name
+		}
+	}
+	ingressName := appName
+	if s.namePrefix != "" {
+		if strings.HasSuffix(s.namePrefix, "-") || strings.HasSuffix(s.namePrefix, ".") {
+			ingressName = s.namePrefix + appName
+		} else {
+			ingressName = s.namePrefix + "-" + appName
 		}
 	}
 	// choose the hostname and path of the ingress
@@ -197,9 +209,7 @@ func (s *IngressStrategy) Add(svc *v1.Service) error {
 	glog.Infof("Exposing Port %d of Service %s/%s",
 		servicePort, svc.Namespace, svc.Name)
 	// gather the annotations of the ingress
-	ingressAnnotations := map[string]string{
-		"fabric8.io/generated-by": "exposecontroller",
-	}
+	ingressAnnotations := map[string]string{}
 	// ingress class annotation
 	if s.ingressClass != "" {
 		ingressAnnotations["kubernetes.io/ingress.class"] = s.ingressClass
@@ -209,19 +219,16 @@ func (s *IngressStrategy) Add(svc *v1.Service) error {
 		ingressAnnotations["nginx.ingress.kubernetes.io/ingress.class"] = "nginx"
 	}
 	// check for tls
-	var tlsSecretName string
-
+	tlsSecretName := s.tlsSecretName
 	if s.tlsAcme {
 		ingressAnnotations["kubernetes.io/tls-acme"] = "true"
-		if s.tlsSecretName == "" {
+		if tlsSecretName == "" {
 			tlsSecretName = "tls-" + appName
-		} else {
-			tlsSecretName = s.tlsSecretName
 		}
 	}
 
 	var tlsSpec []v1beta1.IngressTLS
-	if s.isTLSEnabled(svc) {
+	if tlsSecretName != "" {
 		tlsSpec = []v1beta1.IngressTLS{
 			{
 				Hosts:      []string{tlsHostName},
@@ -238,11 +245,13 @@ func (s *IngressStrategy) Add(svc *v1.Service) error {
 				svc.Namespace, svc.Name)
 		}
 	}
+	// that annotations is important anc cannot be overridden
+	ingressAnnotations["fabric8.io/generated-by"] = "exposecontroller"
 	// build the ingress
 	ingress := v1beta1.Ingress{
 		ObjectMeta: metav1.ObjectMeta{
 			Namespace:   svc.Namespace,
-			Name:        appName,
+			Name:        ingressName,
 			Labels:      map[string]string{
 				"provider": "fabric8",
 			},
@@ -326,7 +335,7 @@ func (s *IngressStrategy) Add(svc *v1.Service) error {
 	}
 	// build the patch for the service annotations
 	clone := svc.DeepCopy()
-	if s.isTLSEnabled(svc) {
+	if tlsSecretName != "" {
 		clone, err = addServiceAnnotationWithProtocol(clone, fullHostName, "https")
 	} else {
 		clone, err = addServiceAnnotationWithProtocol(clone, fullHostName, "http")
@@ -372,18 +381,6 @@ func (s *IngressStrategy) Remove(svc *v1.Service) error {
 	return nil
 }
 
-func (s *IngressStrategy) isTLSEnabled(svc *v1.Service) bool {
-	if svc != nil && svc.Annotations["jenkins-x.io/skip.tls"] == "true" {
-		return false
-	}
-
-	if len(s.tlsSecretName) > 0 || s.tlsAcme {
-		return true
-	}
-
-	return false
-}
-
 func deleteIngress(client kubernetes.Interface, ingress *v1beta1.Ingress) {
 	options := metav1.DeleteOptions{
 		Preconditions: &metav1.Preconditions{
@@ -399,12 +396,12 @@ func deleteIngress(client kubernetes.Interface, ingress *v1beta1.Ingress) {
 }
 
 func getIngressService(ingress *v1beta1.Ingress) (string, bool) {
-	if ingress.Annotations["provider"] != "fabric8" || ingress.Annotations["fabric8.io/generated-by"] != "exposecontroller" {
+	if ingress.Labels["provider"] != "fabric8" || ingress.Annotations["fabric8.io/generated-by"] != "exposecontroller" {
 		return "", false
 	} else if len(ingress.OwnerReferences) != 1 {
 		return "", true
 	} else if owner := ingress.OwnerReferences[0]; owner.Kind != "Service" {
-		return "", false
+		return "", true
 	} else {
 		return fmt.Sprintf("%s/%s", ingress.Namespace, owner.Name), false
 	}

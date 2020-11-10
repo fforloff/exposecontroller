@@ -276,6 +276,10 @@ func TestIngressStrategy_Sync(t *testing.T) {
 
 func TestIngressStrategy_Add(t *testing.T) {
 	service := &v1.Service{
+		TypeMeta: metav1.TypeMeta{
+			Kind:       "Service",
+			APIVersion: "v1",
+		},
 		ObjectMeta: metav1.ObjectMeta{
 			Namespace: "main",
 			Name: "source",
@@ -386,7 +390,7 @@ func TestIngressStrategy_Add(t *testing.T) {
 		client:         client,
 		namespace:      "main",
 		domain:         "my-domain.com",
-		urltemplate:    "%s.%s.%s",
+		urltemplate:    "%[1]s.%[2]s.%[3]s",
 		existing: map[string][]string{
 			"main/source": []string{
 				"ingress1",
@@ -415,7 +419,7 @@ func TestIngressStrategy_Add(t *testing.T) {
 	assert.Equal(t, expectedF, found, "found ingresses")
 
 	ingress, err := client.ExtensionsV1beta1().Ingresses("main").Get("source", metav1.GetOptions{})
-	if !assert.NoError(t, err, "get ingress") {
+	if assert.NoError(t, err, "get ingress") {
 		expectedI := &v1beta1.Ingress{
 			ObjectMeta: metav1.ObjectMeta{
 				Namespace: "main",
@@ -454,14 +458,18 @@ func TestIngressStrategy_Add(t *testing.T) {
 	}
 
 	service, err = client.CoreV1().Services("main").Get("source", metav1.GetOptions{})
-	if !assert.NoError(t, err, "get service") {
+	if assert.NoError(t, err, "get service") {
 		expectedS := &v1.Service{
+			TypeMeta: metav1.TypeMeta{
+				Kind:       "Service",
+				APIVersion: "v1",
+			},
 			ObjectMeta: metav1.ObjectMeta{
 				Namespace: "main",
 				Name: "source",
 				Annotations: map[string]string {
 					ExposeAnnotation.Key: ExposeAnnotation.Value,
-					ExposeAnnotationKey: "http://ource.main.my-domain.com",
+					ExposeAnnotationKey: "http://source.main.my-domain.com",
 				},
 				ResourceVersion: "1",
 			},
@@ -472,5 +480,123 @@ func TestIngressStrategy_Add(t *testing.T) {
 			},
 		}
 		assert.Equalf(t, expectedS, service, "service")
+	}
+}
+
+func TestIngressStrategy_IngressTLS(t *testing.T) {
+	service := &v1.Service{
+		TypeMeta: metav1.TypeMeta{
+			Kind:       "Service",
+			APIVersion: "v1",
+		},
+		ObjectMeta: metav1.ObjectMeta{
+			Namespace: "main",
+			Name: "my-service",
+			Annotations: map[string]string {
+				ExposeAnnotation.Key: ExposeAnnotation.Value,
+			},
+			ResourceVersion: "1",
+			UID: "my-service-uid",
+		},
+		Spec: v1.ServiceSpec{
+			Ports: []v1.ServicePort{{
+				Port: 123,
+			}, {
+				Port: 456,
+			}, {
+				Port: 789,
+			}},
+		},
+	}
+	client := fake.NewSimpleClientset(service)
+
+	strategy := IngressStrategy{
+		client:         client,
+		namespace:      "main",
+		namePrefix:     "prefix",
+		domain:         "my-domain.com",
+		internalDomain: "my-internal-domain.com",
+		urltemplate:    "%[1]s-%[2]s.%[3]s",
+		tlsAcme:        true,
+		ingressClass:   "myIngressClass",
+		existing:       map[string][]string{},
+	}
+	err := strategy.Add(service)
+	require.NoError(t, err)
+
+	service, err = client.CoreV1().Services("main").Get("my-service", metav1.GetOptions{})
+	if assert.NoError(t, err, "get service") {
+		expectedS := &v1.Service{
+			TypeMeta: metav1.TypeMeta{
+				Kind:       "Service",
+				APIVersion: "v1",
+			},
+			ObjectMeta: metav1.ObjectMeta{
+				Namespace: "main",
+				Name: "my-service",
+				Annotations: map[string]string {
+					ExposeAnnotation.Key: ExposeAnnotation.Value,
+					ExposeAnnotationKey: "https://my-service-main.my-domain.com",
+				},
+				ResourceVersion: "1",
+				UID: "my-service-uid",
+			},
+			Spec: v1.ServiceSpec{
+				Ports: []v1.ServicePort{{
+					Port: 123,
+				}, {
+					Port: 456,
+				}, {
+					Port: 789,
+				}},
+			},
+		}
+		assert.Equalf(t, expectedS, service, "service")
+	}
+
+	ingress, err := client.ExtensionsV1beta1().Ingresses("main").Get("prefix-my-service", metav1.GetOptions{})
+	if assert.NoError(t, err, "get ingress") {
+		expectedI := &v1beta1.Ingress{
+			ObjectMeta: metav1.ObjectMeta{
+				Namespace: "main",
+				Name: "prefix-my-service",
+				Labels:      map[string]string{
+					"provider": "fabric8",
+				},
+				Annotations: map[string]string {
+					"fabric8.io/generated-by": "exposecontroller",
+					"kubernetes.io/ingress.class": "myIngressClass",
+					"nginx.ingress.kubernetes.io/ingress.class": "myIngressClass",
+					"kubernetes.io/tls-acme": "true",
+				},
+				OwnerReferences: []metav1.OwnerReference{{
+					Kind:       "Service",
+					APIVersion: "v1",
+					Name:       "my-service",
+					UID:        "my-service-uid",
+				}},
+			},
+			Spec: v1beta1.IngressSpec{
+				Rules: []v1beta1.IngressRule{{
+					Host: "my-service-main.my-domain.com",
+					IngressRuleValue: v1beta1.IngressRuleValue{
+						HTTP: &v1beta1.HTTPIngressRuleValue{
+							Paths: []v1beta1.HTTPIngressPath{{
+								Backend: v1beta1.IngressBackend{
+									ServiceName: "my-service",
+									ServicePort: intstr.FromInt(123),
+								},
+								Path: "",
+							}},
+						},
+					},
+				}},
+				TLS: []v1beta1.IngressTLS{{
+					Hosts:      []string{"my-service-main.my-domain.com"},
+					SecretName: "tls-my-service",
+				}},
+			},
+		}
+		assert.Equalf(t, expectedI, ingress, "ingress")
 	}
 }

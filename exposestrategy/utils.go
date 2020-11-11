@@ -34,14 +34,18 @@ func findHttpProtocol(svc *v1.Service, hostName string) string {
 	return protocol
 }
 
-func addServiceAnnotation(svc *v1.Service, hostName, path string) (*v1.Service, error) {
+func addServiceAnnotation(svc *v1.Service, hostName string) error {
 	protocol := findHttpProtocol(svc, hostName)
-	return addServiceAnnotationWithProtocol(svc, hostName, path, protocol)
+	return addServiceAnnotationWithProtocol(svc, hostName, "", protocol)
 }
 
-func addServiceAnnotationWithProtocol(svc *v1.Service, hostName, path, protocol string) (*v1.Service, error) {
+func addServiceAnnotationWithProtocol(svc *v1.Service, hostName, path, protocol string) error {
 	if svc.Annotations == nil {
 		svc.Annotations = map[string]string{}
+	}
+	if hostName == "" {
+		svc.Annotations[ExposeAnnotationKey] = ""
+		return nil
 	}
 
 	exposeURL := protocol + "://" + hostName
@@ -53,25 +57,27 @@ func addServiceAnnotationWithProtocol(svc *v1.Service, hostName, path, protocol 
 	}
 	svc.Annotations[ExposeAnnotationKey] = exposeURL
 
-	if key := svc.Annotations[ExposeHostNameAsAnnotationKey]; len(key) > 0 {
+	if key := svc.Annotations[ExposeHostNameAsAnnotationKey]; key != "" {
 		svc.Annotations[key] = hostName
 	}
 
-	return svc, nil
+	return nil
+}
+
+func removeServiceAnnotation(svc *v1.Service) bool {
+	if _, ok := svc.Annotations[ExposeAnnotationKey]; !ok {
+		return false
+	}
+	delete(svc.Annotations, ExposeAnnotationKey)
+	if key := svc.Annotations[ExposeHostNameAsAnnotationKey]; key != "" {
+		delete(svc.Annotations, key)
+	}
+	return true
 }
 
 // urlJoin joins the given URL paths so that there is a / separating them but not a double //
 func urlJoin(repo string, path string) string {
 	return strings.TrimSuffix(repo, "/") + "/" + strings.TrimPrefix(path, "/")
-}
-
-func removeServiceAnnotation(svc *v1.Service) *v1.Service {
-	delete(svc.Annotations, ExposeAnnotationKey)
-	if key := svc.Annotations[ExposeHostNameAsAnnotationKey]; len(key) > 0 {
-		delete(svc.Annotations, key)
-	}
-
-	return svc
 }
 
 var patchType types.PatchType = types.StrategicMergePatchType

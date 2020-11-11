@@ -25,11 +25,9 @@ func (s *LoadBalancerStrategy) Add(svc *v1.Service) error {
 	var err error
 	clone := svc.DeepCopy()
 	clone.Spec.Type = v1.ServiceTypeLoadBalancer
-	if len(clone.Spec.LoadBalancerIP) > 0 {
-		clone, err = addServiceAnnotation(clone, clone.Spec.LoadBalancerIP, "")
-		if err != nil {
-			return errors.Wrap(err, "failed to add service annotation")
-		}
+	err = addServiceAnnotation(clone, clone.Spec.LoadBalancerIP)
+	if err != nil {
+		return errors.Wrap(err, "failed to add service annotation")
 	}
 
 	patch, err := createServicePatch(svc, clone)
@@ -49,7 +47,10 @@ func (s *LoadBalancerStrategy) Add(svc *v1.Service) error {
 
 func (s *LoadBalancerStrategy) Remove(svc *v1.Service) error {
 	clone := svc.DeepCopy()
-	clone = removeServiceAnnotation(clone)
+	if !removeServiceAnnotation(clone) {
+		return nil
+	}
+	clone.Spec.Type = v1.ServiceTypeClusterIP
 
 	patch, err := createServicePatch(svc, clone)
 	if err != nil {

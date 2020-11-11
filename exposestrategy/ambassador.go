@@ -85,13 +85,13 @@ func (s *AmbassadorStrategy) Add(svc *v1.Service) error {
 		pathMode = s.pathMode
 	}
 	if pathMode == PathModeUsePath {
-		suffix := path
-		if len(suffix) == 0 {
-			suffix = "/"
+		if path == "" {
+			path = "/"
 		}
-		path = UrlJoin("/", svc.Namespace, appName, suffix)
+		path = UrlJoin("/", svc.Namespace, appName, path)
 		hostName = s.domain
-		// fullHostName = UrlJoin(hostName, path)
+	} else if path == "" || path[0] != '/' {
+		path = "/" + path
 	}
 
 	exposePort := svc.Annotations[ExposePortAnnotationKey]
@@ -126,15 +126,36 @@ func (s *AmbassadorStrategy) Add(svc *v1.Service) error {
 	if err != nil {
 		return errors.Wrapf(err, "failed to convert the exposed port '%s' to int", exposePort)
 	}
+
+	tlsSecretName := s.tlsSecretName
+	if s.tlsAcme && tlsSecretName == "" {
+		tlsSecretName = "tls-" + appName
+	}
+	if svc.Annotations["jenkins-x.io/skip.tls"] == "true" {
+		tlsSecretName = ""
+	}
+
 	glog.Infof("Exposing Port %d of Service %s", servicePort, svc.Name)
 
+	clone := svc.DeepCopy()
+	if tlsSecretName != "" {
+		err = addServiceAnnotationWithProtocol(clone, hostName, path, "https")
+	} else {
+		err = addServiceAnnotationWithProtocol(clone, hostName, path, "http")
+	}
+	if err != nil {
+		return errors.Wrapf(err, "failed to add annotation to service %s/%s",
+			svc.Namespace, svc.Name)
+	}
 	// Here's where we start adding the annotations to our service
 	ambassadorAnnotations := map[string]interface{}{
 		"apiVersion": "ambassador/v1",
 		"kind":       "Mapping",
 		"host":       hostName,
 		"name":       fmt.Sprintf("%s_%s_mapping", hostName, svc.Namespace),
-		"service":    fmt.Sprintf("%s.%s:%s", appName, svc.Namespace, strconv.Itoa(servicePort))}
+		"service":    fmt.Sprintf("%s.%s:%s", appName, svc.Namespace, strconv.Itoa(servicePort)),
+		"prefix":     path,
+	}
 
 	joinedAnnotations := new(bytes.Buffer)
 	fmt.Fprintf(joinedAnnotations, "---\n")
@@ -144,11 +165,7 @@ func (s *AmbassadorStrategy) Add(svc *v1.Service) error {
 	}
 	fmt.Fprintf(joinedAnnotations, "%s", string(yamlAnnotation))
 
-	if s.tlsAcme && s.tlsSecretName == "" {
-		s.tlsSecretName = "tls-" + appName
-	}
-
-	if s.isTLSEnabled(svc) {
+	if tlsSecretName != "" {
 		// we need to prepare the tls module config
 		ambassadorAnnotations = map[string]interface{}{
 			"apiVersion": "ambassador/v1",
@@ -157,7 +174,7 @@ func (s *AmbassadorStrategy) Add(svc *v1.Service) error {
 			"config": map[string]interface{}{
 				"server": map[string]interface{}{
 					"enabled": "True",
-					"secret":  s.tlsSecretName}}}
+					"secret":  tlsSecretName}}}
 
 		yamlAnnotation, err = yaml.Marshal(&ambassadorAnnotations)
 		if err != nil {
@@ -167,8 +184,6 @@ func (s *AmbassadorStrategy) Add(svc *v1.Service) error {
 		fmt.Fprintf(joinedAnnotations, "---\n")
 		fmt.Fprintf(joinedAnnotations, "%s", string(yamlAnnotation))
 	}
-
-	clone := svc.DeepCopy()
 	clone.Annotations["getambassador.io/config"] = joinedAnnotations.String()
 
 	patch, err := createServicePatch(svc, clone)
@@ -191,6 +206,9 @@ func (s *AmbassadorStrategy) Add(svc *v1.Service) error {
 
 func (s *AmbassadorStrategy) Remove(svc *v1.Service) error {
 	clone := svc.DeepCopy()
+	if !removeServiceAnnotation(clone) {
+		return nil
+	}
 	delete(svc.Annotations, "getambassador.io/config")
 
 	patch, err := createServicePatch(svc, clone)
@@ -208,16 +226,4 @@ func (s *AmbassadorStrategy) Remove(svc *v1.Service) error {
 		}
 	}
 	return nil
-}
-
-func (s *AmbassadorStrategy) isTLSEnabled(svc *v1.Service) bool {
-	if svc != nil && svc.Annotations["jenkins-x.io/skip.tls"] == "true" {
-		return false
-	}
-
-	if len(s.tlsSecretName) > 0 || s.tlsAcme {
-		return true
-	}
-
-	return false
 }

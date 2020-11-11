@@ -75,6 +75,7 @@ func (s *NodePortStrategy) Add(svc *v1.Service) error {
 	var err error
 	clone := svc.DeepCopy()
 	clone.Spec.Type = v1.ServiceTypeNodePort
+	clone.Spec.ExternalIPs = nil
 
 	if len(svc.Spec.Ports) == 0 {
 		return errors.Errorf(
@@ -92,12 +93,13 @@ func (s *NodePortStrategy) Add(svc *v1.Service) error {
 
 	port := svc.Spec.Ports[0]
 	portInt := int(port.NodePort)
-	nodePort := strconv.Itoa(portInt)
-	hostName := net.JoinHostPort(s.nodeIP, nodePort)
 	if portInt > 0 {
-		clone, err = addServiceAnnotation(clone, hostName, "")
+		nodePort := strconv.Itoa(portInt)
+		hostName := net.JoinHostPort(s.nodeIP, nodePort)
+		err = addServiceAnnotation(clone, hostName)
+	} else {
+		err = addServiceAnnotation(clone, "")
 	}
-	clone.Spec.ExternalIPs = nil
 	if err != nil {
 		return errors.Wrap(err, "failed to add service annotation")
 	}
@@ -118,7 +120,10 @@ func (s *NodePortStrategy) Add(svc *v1.Service) error {
 
 func (s *NodePortStrategy) Remove(svc *v1.Service) error {
 	clone := svc.DeepCopy()
-	clone = removeServiceAnnotation(clone)
+	if !removeServiceAnnotation(clone) {
+		return nil
+	}
+	clone.Spec.Type = v1.ServiceTypeClusterIP
 
 	patch, err := createServicePatch(svc, clone)
 	if err != nil {

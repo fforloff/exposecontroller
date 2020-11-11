@@ -33,7 +33,7 @@ func NewNodePortStrategy(client kubernetes.Interface, config *ExposeStrategyConf
 		}
 
 		n := l.Items[0]
-		ip = n.ObjectMeta.Annotations[ExternalIPLabel]
+		ip = n.ObjectMeta.Labels[ExternalIPLabel]
 		if len(ip) == 0 {
 			addr, err := getNodeHostIP(n)
 			if err != nil {

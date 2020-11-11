@@ -26,7 +26,7 @@ func (s *LoadBalancerStrategy) Add(svc *v1.Service) error {
 	clone := svc.DeepCopy()
 	clone.Spec.Type = v1.ServiceTypeLoadBalancer
 	if len(clone.Spec.LoadBalancerIP) > 0 {
-		clone, err = addServiceAnnotation(clone, clone.Spec.LoadBalancerIP)
+		clone, err = addServiceAnnotation(clone, clone.Spec.LoadBalancerIP, "")
 		if err != nil {
 			return errors.Wrap(err, "failed to add service annotation")
 		}

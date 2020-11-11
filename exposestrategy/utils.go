@@ -34,18 +34,20 @@ func findHttpProtocol(svc *v1.Service, hostName string) string {
 	return protocol
 }
 
-func addServiceAnnotation(svc *v1.Service, hostName string) (*v1.Service, error) {
+func addServiceAnnotation(svc *v1.Service, hostName, path string) (*v1.Service, error) {
 	protocol := findHttpProtocol(svc, hostName)
-	return addServiceAnnotationWithProtocol(svc, hostName, protocol)
+	return addServiceAnnotationWithProtocol(svc, hostName, path, protocol)
 }
 
-func addServiceAnnotationWithProtocol(svc *v1.Service, hostName string, protocol string) (*v1.Service, error) {
+func addServiceAnnotationWithProtocol(svc *v1.Service, hostName, path, protocol string) (*v1.Service, error) {
 	if svc.Annotations == nil {
 		svc.Annotations = map[string]string{}
 	}
 
 	exposeURL := protocol + "://" + hostName
-	path := svc.Annotations[ApiServicePathAnnotationKey]
+	if annotationPath, ok := svc.Annotations[ApiServicePathAnnotationKey]; ok {
+		path = annotationPath
+	}
 	if len(path) > 0 {
 		exposeURL = urlJoin(exposeURL, path)
 	}

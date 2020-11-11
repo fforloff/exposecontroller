@@ -160,20 +160,19 @@ func (s *IngressStrategy) Add(svc *v1.Service) error {
 	if s.tlsUseWildcard {
 		tlsHostName = "*." + domain
 	}
-	fullHostName := hostName
 	path := svc.Annotations["fabric8.io/ingress.path"]
 	pathMode := svc.Annotations["fabric8.io/path.mode"]
 	if pathMode == "" {
 		pathMode = s.pathMode
 	}
 	if pathMode == PathModeUsePath {
-		suffix := path
-		if len(suffix) == 0 {
-			suffix = "/"
+		if path == "" {
+			path = "/"
 		}
-		path = UrlJoin("/", svc.Namespace, appName, suffix)
+		path = UrlJoin("/", svc.Namespace, appName, path)
 		hostName = domain
-		fullHostName = UrlJoin(hostName, path)
+	} else if path != "" && path[0] != '/' {
+		path = "/" + path
 	}
 	// choose the target port
 	exposePort := svc.Annotations[ExposePortAnnotationKey]
@@ -245,7 +244,7 @@ func (s *IngressStrategy) Add(svc *v1.Service) error {
 				svc.Namespace, svc.Name)
 		}
 	}
-	// that annotations is important anc cannot be overridden
+	// that annotations is important and cannot be overridden
 	ingressAnnotations["fabric8.io/generated-by"] = "exposecontroller"
 	// build the ingress
 	ingress := v1beta1.Ingress{
@@ -336,9 +335,9 @@ func (s *IngressStrategy) Add(svc *v1.Service) error {
 	// build the patch for the service annotations
 	clone := svc.DeepCopy()
 	if tlsSecretName != "" {
-		clone, err = addServiceAnnotationWithProtocol(clone, fullHostName, "https")
+		clone, err = addServiceAnnotationWithProtocol(clone, hostName, path, "https")
 	} else {
-		clone, err = addServiceAnnotationWithProtocol(clone, fullHostName, "http")
+		clone, err = addServiceAnnotationWithProtocol(clone, hostName, path, "http")
 	}
 	if err != nil {
 		return errors.Wrapf(err, "failed to add annotation to service %s/%s",

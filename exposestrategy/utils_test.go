@@ -12,6 +12,7 @@ func TestAddServiceAnnotationWithProtocol(t *testing.T) {
 	tests := []struct {
 		svc                 *v1.Service
 		hostName            string
+		path                string
 		protocol            string
 		expectedAnnotations map[string]string
 	}{
@@ -32,6 +33,15 @@ func TestAddServiceAnnotationWithProtocol(t *testing.T) {
 			},
 		},
 		{
+			svc:      &v1.Service{},
+			hostName: "example.com",
+			path:     "some/path",
+			protocol: "http",
+			expectedAnnotations: map[string]string{
+				ExposeAnnotationKey: "http://example.com/some/path",
+			},
+		},
+		{
 			svc: &v1.Service{
 				ObjectMeta: metav1.ObjectMeta{
 					Annotations: map[string]string{
@@ -40,6 +50,7 @@ func TestAddServiceAnnotationWithProtocol(t *testing.T) {
 				},
 			},
 			hostName: "example.com",
+			path:     "other/path",
 			protocol: "https",
 			expectedAnnotations: map[string]string{
 				ApiServicePathAnnotationKey: "some/path",
@@ -65,7 +76,7 @@ func TestAddServiceAnnotationWithProtocol(t *testing.T) {
 	}
 
 	for i, test := range tests {
-		svc, err := addServiceAnnotationWithProtocol(test.svc, test.hostName, test.protocol)
+		svc, err := addServiceAnnotationWithProtocol(test.svc, test.hostName, test.path, test.protocol)
 		if err != nil {
 			t.Errorf("[%d] got unexpected error: %v", i, err)
 			continue

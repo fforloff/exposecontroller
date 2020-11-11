@@ -95,7 +95,7 @@ func (s *NodePortStrategy) Add(svc *v1.Service) error {
 	nodePort := strconv.Itoa(portInt)
 	hostName := net.JoinHostPort(s.nodeIP, nodePort)
 	if portInt > 0 {
-		clone, err = addServiceAnnotation(clone, hostName)
+		clone, err = addServiceAnnotation(clone, hostName, "")
 	}
 	clone.Spec.ExternalIPs = nil
 	if err != nil {

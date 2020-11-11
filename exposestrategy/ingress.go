@@ -376,6 +376,7 @@ func (s *IngressStrategy) Remove(svc *v1.Service) error {
 				svc.Namespace, name, err)
 		}
 	}
+	delete(s.existing, svcKey)
 
 	clone := svc.DeepCopy()
 	if !removeServiceAnnotation(clone) {

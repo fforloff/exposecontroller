@@ -483,6 +483,193 @@ func TestIngressStrategy_Add(t *testing.T) {
 	}
 }
 
+func TestIngressStrategy_Remove(t *testing.T) {
+	objects := []runtime.Object{
+		&v1.Service{
+			ObjectMeta: metav1.ObjectMeta{
+				Namespace: "ns1",
+				Name: "svc1",
+				Annotations: map[string]string{
+					ExposeAnnotationKey: "url",
+					"other": "other",
+				},
+			},
+		},
+		&v1beta1.Ingress{
+			ObjectMeta: metav1.ObjectMeta{
+				Namespace: "ns1",
+				Name: "ingress1",
+				Labels: map[string]string{
+					"provider": "fabric8",
+				},
+				Annotations: map[string]string{
+					"fabric8.io/generated-by": "exposecontroller",
+				},
+				OwnerReferences: []metav1.OwnerReference{{
+					Kind:       "Service",
+					APIVersion: "v1",
+					Name:       "svc1",
+				}},
+			},
+		},
+		&v1beta1.Ingress{
+			ObjectMeta: metav1.ObjectMeta{
+				Namespace: "ns1",
+				Name: "ingress2",
+				Labels: map[string]string{
+					"provider": "fabric8",
+				},
+				Annotations: map[string]string{
+					"fabric8.io/generated-by": "exposecontroller",
+				},
+				OwnerReferences: []metav1.OwnerReference{{
+					Kind:       "Service",
+					APIVersion: "v1",
+					Name:       "other",
+				}},
+			},
+		},
+		&v1beta1.Ingress{
+			ObjectMeta: metav1.ObjectMeta{
+				Namespace: "ns1",
+				Name: "ingress3",
+				Labels: map[string]string{
+					"provider": "fabric8",
+				},
+				Annotations: map[string]string{
+					"fabric8.io/generated-by": "exposecontroller",
+				},
+			},
+		},
+		&v1beta1.Ingress{
+			ObjectMeta: metav1.ObjectMeta{
+				Namespace: "ns1",
+				Name: "ingress4",
+				Labels: map[string]string{
+					"provider": "fabric8",
+				},
+				Annotations: map[string]string{
+					"fabric8.io/generated-by": "not-exposecontroller",
+				},
+				OwnerReferences: []metav1.OwnerReference{{
+					Kind:       "Service",
+					APIVersion: "v1",
+					Name:       "svc1",
+				}},
+			},
+		},
+		&v1beta1.Ingress{
+			ObjectMeta: metav1.ObjectMeta{
+				Namespace: "ns1",
+				Name: "ingress5",
+				Labels: map[string]string{
+					"provider": "fabric8",
+				},
+				Annotations: map[string]string{
+					"fabric8.io/generated-by": "exposecontroller",
+				},
+				OwnerReferences: []metav1.OwnerReference{{
+					Kind:       "Service",
+					APIVersion: "v1",
+					Name:       "svc1",
+				}},
+			},
+		},
+		&v1beta1.Ingress{
+			ObjectMeta: metav1.ObjectMeta{
+				Namespace: "ns1",
+				Name: "ingress6",
+				Labels: map[string]string{
+					"provider": "fabric8",
+				},
+				Annotations: map[string]string{
+					"fabric8.io/generated-by": "exposecontroller",
+				},
+				OwnerReferences: []metav1.OwnerReference{{
+					Kind:       "Service",
+					APIVersion: "v1",
+					Name:       "svc1",
+				}},
+			},
+		},
+		&v1beta1.Ingress{
+			ObjectMeta: metav1.ObjectMeta{
+				Namespace: "ns2",
+				Name: "ingress7",
+				Labels: map[string]string{
+					"provider": "fabric8",
+				},
+				Annotations: map[string]string{
+					"fabric8.io/generated-by": "exposecontroller",
+				},
+				OwnerReferences: []metav1.OwnerReference{{
+					Kind:       "Service",
+					APIVersion: "v1",
+					Name:       "svc2",
+				}},
+			},
+		},
+	}
+
+	client := fake.NewSimpleClientset(objects...)
+	strategy := IngressStrategy{
+		client: client,
+		existing: map[string][]string{
+			"ns1/svc1": []string{
+				"ingress1",
+				"ingress2",
+				"ingress3",
+				"ingress4",
+				"ingress5",
+			},
+			"ns2/svc2": []string{
+				"ingress7",
+			},
+			"ns3/svc3": []string{
+				"other",
+			},
+		},
+	}
+
+	err := strategy.Remove(&v1.Service{
+		ObjectMeta: metav1.ObjectMeta{
+			Namespace: "ns1",
+			Name: "svc1",
+			Annotations: map[string]string{
+				ExposeAnnotationKey: "url",
+			},
+		},
+	})
+	assert.NoError(t, err, "clean and patch svc1")
+	err = strategy.Remove(&v1.Service{
+		ObjectMeta: metav1.ObjectMeta{
+			Namespace: "ns2",
+			Name: "svc2",
+		},
+	})
+	assert.NoError(t, err, "clean svc2")
+
+	list, err := client.ExtensionsV1beta1().Ingresses("").List(metav1.ListOptions{})
+	if assert.NoError(t, err, "get ingresses") {
+		found := map[string]bool{}
+		for _, ingress := range list.Items {
+			found[ingress.Name] = true
+		}
+		expectedF := map[string]bool{
+			"ingress2": true,
+			"ingress4": true,
+			"ingress6": true,
+		}
+		assert.Equal(t, expectedF, found, "ingresses")
+	}
+	expectedE := map[string][]string{
+		"ns3/svc3": []string{
+			"other",
+		},
+	}
+	assert.Equal(t, expectedE, strategy.existing, "strategy.existing")
+}
+
 func TestIngressStrategy_IngressTLSAcme(t *testing.T) {
 	service := &v1.Service{
 		TypeMeta: metav1.TypeMeta{

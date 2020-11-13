@@ -128,6 +128,10 @@ func (s *IngressStrategy) Sync() error {
 	return nil
 }
 
+func (s *IngressStrategy) HasSynced() bool {
+	return true
+}
+
 func (s *IngressStrategy) Add(svc *v1.Service) error {
 	// choose the name of the ingress
 	appName := svc.Annotations["fabric8.io/ingress.name"]
@@ -362,7 +366,7 @@ func (s *IngressStrategy) Add(svc *v1.Service) error {
 	return nil
 }
 
-func (s *IngressStrategy) Remove(svc *v1.Service) error {
+func (s *IngressStrategy) Clean(svc *v1.Service) error {
 	svcKey := fmt.Sprintf("%s/%s", svc.Namespace, svc.Name)
 	for _, name := range s.existing[svcKey] {
 		existing, err := s.client.ExtensionsV1beta1().Ingresses(svc.Namespace).Get(name, metav1.GetOptions{})
@@ -397,6 +401,25 @@ func (s *IngressStrategy) Remove(svc *v1.Service) error {
 				svc.Namespace, svc.Name)
 		}
 	}
+	return nil
+}
+
+func (s *IngressStrategy) Delete(svc *v1.Service) error {
+	svcKey := fmt.Sprintf("%s/%s", svc.Namespace, svc.Name)
+	for _, name := range s.existing[svcKey] {
+		existing, err := s.client.ExtensionsV1beta1().Ingresses(svc.Namespace).Get(name, metav1.GetOptions{})
+		if err == nil {
+			exKey, del := getIngressService(existing)
+			if del || exKey == svcKey {
+				deleteIngress(s.client, existing)
+			}
+		} else if !apierrors.IsNotFound(err) {
+			glog.Errorf("error when getting ingress %s/%s: %s",
+				svc.Namespace, name, err)
+		}
+	}
+	delete(s.existing, svcKey)
+
 	return nil
 }
 

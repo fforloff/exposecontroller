@@ -30,8 +30,11 @@ var (
 	configFile = flag.String("config", "/etc/exposecontroller/config.yml",
 		`Path to the file that contains the exposecontroller configuration to use`)
 
-	resyncPeriod = flag.Duration("sync-period", 30*time.Second,
+	resyncPeriod = flag.Duration("sync-period", 30*time.Minute,
 		`Relist and confirm services this often.`)
+
+	timeout = flag.Duration("timeout", 5*time.Minute,
+		`The timeout when not run as daemon.`)
 
 	healthzPort = flag.Int("healthz-port", healthPort, "port for healthz endpoint.")
 
@@ -177,14 +180,14 @@ func main() {
 
 	if *daemon {
 		glog.Infof("Watching services in namespaces: `%s`", watchNamespaces)
-		contr, err := controller.ControllerDaemon(kubeClient, *resyncPeriod, watchNamespaces, controllerConfig)
+		contr, err := controller.ControllerDaemon(kubeClient, watchNamespaces, controllerConfig, *resyncPeriod)
 		if err == nil {
 			go registerHandlers(contr)
 			contr.Run(wait.NeverStop)
 		}
 	} else {
 		glog.Infof("Running in : `%s`", watchNamespaces)
-		err = controller.RunController(kubeClient, watchNamespaces, controllerConfig)
+		err = controller.RunController(kubeClient, watchNamespaces, controllerConfig, *timeout)
 	}
 
 	if err != nil {

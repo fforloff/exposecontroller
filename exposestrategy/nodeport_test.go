@@ -114,13 +114,15 @@ func TestNodePortStrategy_Add(t *testing.T) {
 		NodeIP: "my-node-ip",
 	})
 	require.NoError(t, err)
+	err = strategy.Sync()
+	require.NoError(t, err)
 	err = strategy.Add(&v1.Service{
 		ObjectMeta: metav1.ObjectMeta{
 			Namespace: "ns",
 			Name:      "svc",
 		},
 		Spec: v1.ServiceSpec{
-			Type:           v1.ServiceTypeClusterIP,
+			Type:  v1.ServiceTypeClusterIP,
 			Ports: []v1.ServicePort{{
 				Port: 1234,
 			}},
@@ -148,6 +150,7 @@ func TestNodePortStrategy_Add(t *testing.T) {
 		}
 		assert.Equal(t, expected, svc)
 	}
+	assert.False(t, strategy.HasSynced(), "unsynced")
 	_, err = client.CoreV1().Services("ns").Update(&v1.Service{
 		ObjectMeta: metav1.ObjectMeta{
 			Namespace:   "ns",
@@ -197,8 +200,8 @@ func TestNodePortStrategy_Add(t *testing.T) {
 				},
 			},
 			Spec: v1.ServiceSpec{
-				Type:           v1.ServiceTypeNodePort,
-				ClusterIP:      "my-cluster-ip",
+				Type:      v1.ServiceTypeNodePort,
+				ClusterIP: "my-cluster-ip",
 				Ports: []v1.ServicePort{{
 					Port: 1234,
 					NodePort: 5678,
@@ -207,20 +210,21 @@ func TestNodePortStrategy_Add(t *testing.T) {
 		}
 		assert.Equal(t, expected, svc)
 	}
+	assert.True(t, strategy.HasSynced(), "synced")
 }
 
-func TestNodePortStrategy_Remove(t *testing.T) {
+func TestNodePortStrategy_Clean(t *testing.T) {
 	svc1 := &v1.Service{
 		ObjectMeta: metav1.ObjectMeta{
 			Namespace:   "ns1",
 			Name:        "svc1",
 			Annotations: map[string]string{
 				"test": "test",
-				ExposeAnnotationKey: "http://my-cluster-ip:5678",
+				ExposeAnnotationKey: "",
 			},
 		},
 		Spec: v1.ServiceSpec{
-			Type:           v1.ServiceTypeNodePort,
+			Type:  v1.ServiceTypeNodePort,
 			Ports: []v1.ServicePort{{
 				Port: 1234,
 			}},
@@ -233,7 +237,7 @@ func TestNodePortStrategy_Remove(t *testing.T) {
 			Annotations: map[string]string{},
 		},
 		Spec: v1.ServiceSpec{
-			Type:           v1.ServiceTypeNodePort,
+			Type:  v1.ServiceTypeNodePort,
 			Ports: []v1.ServicePort{{
 				Port:     1234,
 				NodePort: 5678,
@@ -241,29 +245,38 @@ func TestNodePortStrategy_Remove(t *testing.T) {
 		},
 	}
 
-	client := fake.NewSimpleClientset(svc1.DeepCopy(), svc2.DeepCopy())
+	client := fake.NewSimpleClientset(svc2.DeepCopy())
 	strategy, err := NewNodePortStrategy(client, &ExposeStrategyConfig{
 		NodeIP: "my-node-ip",
 	})
 	require.NoError(t, err)
+	err = strategy.Sync()
+	require.NoError(t, err)
 
-	err = strategy.Remove(&v1.Service{
+	err = strategy.Add(svc1.DeepCopy())
+	assert.NoError(t, err)
+	assert.False(t, strategy.HasSynced(), "unsynced")
+	// Add it late to be sure it wasn't updated by the strategy
+	_, err = client.CoreV1().Services("ns1").Create(svc1.DeepCopy())
+	require.NoError(t, err)
+
+	err = strategy.Clean(&v1.Service{
 		ObjectMeta: metav1.ObjectMeta{
 			Namespace:   "ns1",
 			Name:        "svc1",
 			Annotations: map[string]string{
-				ExposeAnnotationKey: "http://my-cluster-ip:5678",
+				ExposeAnnotationKey: "",
 			},
 		},
 		Spec: v1.ServiceSpec{
-			Type:           v1.ServiceTypeNodePort,
+			Type:  v1.ServiceTypeNodePort,
 			Ports: []v1.ServicePort{{
 				Port: 1234,
 			}},
 		},
 	})
 	assert.NoError(t, err)
-	err = strategy.Remove(svc2.DeepCopy())
+	err = strategy.Clean(svc2.DeepCopy())
 	assert.NoError(t, err)
 
 	svc, err := client.CoreV1().Services("ns1").Get("svc1", metav1.GetOptions{})
@@ -277,7 +290,7 @@ func TestNodePortStrategy_Remove(t *testing.T) {
 				},
 			},
 			Spec: v1.ServiceSpec{
-				Type:           v1.ServiceTypeClusterIP,
+				Type:  v1.ServiceTypeClusterIP,
 				Ports: []v1.ServicePort{{
 					Port: 1234,
 				}},
@@ -290,4 +303,45 @@ func TestNodePortStrategy_Remove(t *testing.T) {
 	if assert.NoError(t, err) {
 		assert.Equal(t, svc2, svc, "unmanaged")
 	}
+
+	assert.True(t, strategy.HasSynced(), "synced")
+}
+
+func TestNodePortStrategy_Delete(t *testing.T) {
+	svc := &v1.Service{
+		ObjectMeta: metav1.ObjectMeta{
+			Namespace:   "ns",
+			Name:        "svc",
+			Annotations: map[string]string{
+				ExposeAnnotationKey: "",
+			},
+		},
+		Spec: v1.ServiceSpec{
+			Type:  v1.ServiceTypeNodePort,
+			Ports: []v1.ServicePort{{
+				Port:     1234,
+			}},
+		},
+	}
+
+	client := fake.NewSimpleClientset()
+	strategy, err := NewNodePortStrategy(client, &ExposeStrategyConfig{
+		NodeIP: "my-node-ip",
+	})
+	require.NoError(t, err)
+	err = strategy.Sync()
+	require.NoError(t, err)
+
+	err = strategy.Add(svc.DeepCopy())
+	assert.NoError(t, err)
+	assert.False(t, strategy.HasSynced(), "unsynced")
+	// Add it late to be sure it wasn't updated by the strategy
+	_, err = client.CoreV1().Services("ns").Create(svc.DeepCopy())
+	require.NoError(t, err)
+
+	err = client.CoreV1().Services(svc.Namespace).Delete(svc.Name, &metav1.DeleteOptions{})
+	require.NoError(t, err)
+	err = strategy.Delete(svc.DeepCopy())
+	require.NoError(t, err)
+	assert.True(t, strategy.HasSynced(), "usynced")
 }

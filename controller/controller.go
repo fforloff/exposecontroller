@@ -42,51 +42,40 @@ const (
 	updateOnChangeAnnotation = "configmap.fabric8.io/update-on-change"
 )
 
-func RunController(client kubernetes.Interface, namespace string, config *Config) error {
+func RunController(client kubernetes.Interface, namespace string, config *Config, timeout time.Duration) error {
+	var hasSyncedTimeout <-chan time.Time
+	if timeout > 0*time.Second {
+		hasSyncedTimeout = time.After(timeout)
+	} else {
+		hasSyncedTimeout = make(chan time.Time)
+	}
+	hasSynced := make(chan struct{})
+	hasSyncedController := make(chan struct{})
+	hasSyncedStrategy := make(chan struct{})
 
-	strategy, err := getStrategy(client, namespace, config)
+	controller, err := createController(client, namespace, config, time.Hour, hasSyncedController, hasSyncedStrategy)
 	if err != nil {
 		return err
 	}
 
-	if len(config.ApiServerProtocol) == 0 {
-		config.ApiServerProtocol = kubernetesServiceProtocol(client)
-	}
-
-	services := client.CoreV1().Services(namespace)
-
-	strategy.Sync()
-	list, err := services.List(metav1.ListOptions{})
-	if err != nil {
-		return errors.Wrap(err, "failed getting the list of services")
-	}
-	for index := range list.Items{
-		svc := &list.Items[index]
-		if shouldExposeService(svc) {
-			if !isServiceWhitelisted(svc.Name, config) {
-				continue
-			}
-			err := strategy.Add(svc)
-			if err != nil {
-				glog.Errorf("Add failed: %v", err)
-			}
-			updateRelatedResources(client, svc, config)
-		} else {
-			if !isServiceWhitelisted(svc.Name, config) {
-				continue
-			}
-			err := strategy.Remove(svc)
-			if err != nil {
-				glog.Errorf("Remove failed: %v", err)
-			}
+	go func() {
+		select {
+		case <- hasSyncedTimeout:
+			err = fmt.Errorf("timeout")
+		case <- hasSyncedController:
+		case <- hasSyncedStrategy:
 		}
-	}
-
-	return nil
+		close(hasSynced)
+	}()
+	controller.Run(hasSynced)
+	return err
 }
 
-func ControllerDaemon(client kubernetes.Interface, resyncPeriod time.Duration, namespace string, config *Config) (cache.Controller, error) {
+func ControllerDaemon(client kubernetes.Interface, namespace string, config *Config, resyncPeriod time.Duration) (cache.Controller, error) {
+	return createController(client, namespace, config, resyncPeriod, nil, nil)
+}
 
+func createController(client kubernetes.Interface, namespace string, config *Config, resyncPeriod time.Duration, hasSyncedController, hasSyncedStrategy chan struct{}) (cache.Controller, error) {
 	strategy, err := getStrategy(client, namespace, config)
 	if err != nil {
 		return nil, err
@@ -101,8 +90,12 @@ func ControllerDaemon(client kubernetes.Interface, resyncPeriod time.Duration, n
 	needCheckSynced := false
 	checkSynced := func() {
 		needCheckSynced = true
-		if isSyncing && !controller.HasSynced() {
+		if isSyncing && controller.HasSynced() {
 			isSyncing = false
+			if hasSyncedController != nil && strategy.HasSynced() {
+				close(hasSyncedController)
+				hasSyncedController = nil
+			}
 		}
 	}
 
@@ -122,7 +115,7 @@ func ControllerDaemon(client kubernetes.Interface, resyncPeriod time.Duration, n
 				if !isServiceWhitelisted(svc.Name, config) {
 					return
 				}
-				err := strategy.Remove(svc)
+				err := strategy.Clean(svc)
 				if err != nil {
 					glog.Errorf("Remove failed: %v", err)
 				}
@@ -130,10 +123,15 @@ func ControllerDaemon(client kubernetes.Interface, resyncPeriod time.Duration, n
 					needCheckSynced = false
 					go checkSynced()
 				}
+			} else {
+				return
+			}
+			if hasSyncedStrategy != nil && strategy.HasSynced() {
+				close(hasSyncedStrategy)
+				hasSyncedStrategy = nil
 			}
 		},
 		UpdateFunc: func(oldObj interface{}, newObj interface{}) {
-			oldSvc := oldObj.(*v1.Service)
 			svc := newObj.(*v1.Service)
 			if shouldExposeService(svc) {
 				if !isServiceWhitelisted(svc.Name, config) {
@@ -144,14 +142,20 @@ func ControllerDaemon(client kubernetes.Interface, resyncPeriod time.Duration, n
 					glog.Errorf("Add failed: %v", err)
 				}
 				updateRelatedResources(client, svc, config)
-			} else if shouldExposeService(oldSvc) {
-				if !isServiceWhitelisted(oldSvc.Name, config) {
+			} else if shouldExposeService(oldObj.(*v1.Service)) {
+				if !isServiceWhitelisted(svc.Name, config) {
 					return
 				}
-				err := strategy.Remove(oldSvc)
+				err := strategy.Clean(svc)
 				if err != nil {
 					glog.Errorf("Remove failed: %v", err)
 				}
+			} else {
+				return
+			}
+			if hasSyncedStrategy != nil && strategy.HasSynced() {
+				close(hasSyncedStrategy)
+				hasSyncedStrategy = nil
 			}
 		},
 		DeleteFunc: func(obj interface{}) {
@@ -160,10 +164,16 @@ func ControllerDaemon(client kubernetes.Interface, resyncPeriod time.Duration, n
 				if !isServiceWhitelisted(svc.Name, config) {
 					return
 				}
-				err := strategy.Remove(svc)
+				err := strategy.Delete(svc)
 				if err != nil {
 					glog.Errorf("Remove failed: %v", err)
 				}
+			} else {
+				return
+			}
+			if hasSyncedStrategy != nil && strategy.HasSynced() {
+				close(hasSyncedStrategy)
+				hasSyncedStrategy = nil
 			}
 		},
 	}
@@ -173,11 +183,17 @@ func ControllerDaemon(client kubernetes.Interface, resyncPeriod time.Duration, n
 	_, controller = cache.NewInformer(
 		&cache.ListWatch{
 			ListFunc:  func(options metav1.ListOptions) (runtime.Object, error) {
-				strategy.Sync()
+				err := strategy.Sync()
+				if err != nil {
+					return nil, err
+				}
 				list, err := services.List(options)
+				if err != nil {
+					return nil, err
+				}
 				isSyncing = true
-				needCheckSynced = true
-				return list, err
+				go checkSynced()
+				return list, nil
 			},
 			WatchFunc: services.Watch,
 		},
@@ -189,7 +205,14 @@ func ControllerDaemon(client kubernetes.Interface, resyncPeriod time.Duration, n
 	return controller, nil
 }
 
+// for testing only
+var testStrategy exposestrategy.ExposeStrategy
+
 func getStrategy(client kubernetes.Interface, namespace string, config *Config) (exposestrategy.ExposeStrategy, error) {
+	// for testing only
+	if testStrategy != nil {
+		return testStrategy, nil
+	}
 	strategy, err := exposestrategy.New(client, &exposestrategy.ExposeStrategyConfig{
 		Exposer:        config.Exposer,
 		Namespace:      namespace,
@@ -362,7 +385,7 @@ func updateServiceConfigMap(c kubernetes.Interface, svc *v1.Service, config *Con
 			}
 		}
 		exposeURL := svc.Annotations[exposestrategy.ExposeAnnotationKey]
-		if len(exposeURL) > 0 {
+		if exposeURL != "" {
 			host := ""
 			url, err := url.Parse(exposeURL)
 			if err != nil {
@@ -373,13 +396,13 @@ func updateServiceConfigMap(c kubernetes.Interface, svc *v1.Service, config *Con
 			}
 			urlKey := cm.Annotations[ExposeConfigURLKeyAnnotation]
 			domainKey := cm.Annotations[ExposeConfigHostKeyAnnotation]
-			if len(urlKey) > 0 {
+			if urlKey != "" {
 				if cm.Data[urlKey] != exposeURL {
 					cm.Data[urlKey] = exposeURL
 					updated = true
 				}
 			}
-			if len(host) > 0 && len(domainKey) > 0 {
+			if host != "" && domainKey != "" {
 				if cm.Data[domainKey] != host {
 					cm.Data[domainKey] = host
 					updated = true

@@ -11,8 +11,10 @@ import (
 
 type ExposeStrategy interface {
 	Sync() error
+	HasSynced() bool
 	Add(svc *v1.Service) error
-	Remove(svc *v1.Service) error
+	Clean(svc *v1.Service) error
+	Delete(svc *v1.Service) error
 }
 
 type ExposeStrategyConfig struct {

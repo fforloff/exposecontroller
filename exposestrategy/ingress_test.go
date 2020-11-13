@@ -483,7 +483,7 @@ func TestIngressStrategy_Add(t *testing.T) {
 	}
 }
 
-func TestIngressStrategy_Remove(t *testing.T) {
+func TestIngressStrategy_Clean(t *testing.T) {
 	objects := []runtime.Object{
 		&v1.Service{
 			ObjectMeta: metav1.ObjectMeta{
@@ -631,7 +631,7 @@ func TestIngressStrategy_Remove(t *testing.T) {
 		},
 	}
 
-	err := strategy.Remove(&v1.Service{
+	err := strategy.Clean(&v1.Service{
 		ObjectMeta: metav1.ObjectMeta{
 			Namespace: "ns1",
 			Name: "svc1",
@@ -641,7 +641,7 @@ func TestIngressStrategy_Remove(t *testing.T) {
 		},
 	})
 	assert.NoError(t, err, "clean and patch svc1")
-	err = strategy.Remove(&v1.Service{
+	err = strategy.Clean(&v1.Service{
 		ObjectMeta: metav1.ObjectMeta{
 			Namespace: "ns2",
 			Name: "svc2",

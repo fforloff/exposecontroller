@@ -16,6 +16,7 @@ type NodePortStrategy struct {
 	client  kubernetes.Interface
 
 	nodeIP string
+	todo   map[string]bool
 }
 
 const ExternalIPLabel = "fabric8.io/externalIP"
@@ -68,10 +69,17 @@ func getNodeHostIP(node v1.Node) (net.IP, error) {
 }
 
 func (s *NodePortStrategy) Sync() error {
+	s.todo = map[string]bool{}
 	return nil
 }
 
+func (s *NodePortStrategy) HasSynced() bool {
+	return len(s.todo) == 0
+}
+
 func (s *NodePortStrategy) Add(svc *v1.Service) error {
+	delete(s.todo, fmt.Sprintf("%s/%s", svc.Namespace, svc.Name))
+
 	var err error
 	clone := svc.DeepCopy()
 	clone.Spec.Type = v1.ServiceTypeNodePort
@@ -98,6 +106,7 @@ func (s *NodePortStrategy) Add(svc *v1.Service) error {
 		hostName := net.JoinHostPort(s.nodeIP, nodePort)
 		err = addServiceAnnotation(clone, hostName)
 	} else {
+		s.todo[fmt.Sprintf("%s/%s", svc.Namespace, svc.Name)] = true
 		err = addServiceAnnotation(clone, "")
 	}
 	if err != nil {
@@ -115,10 +124,14 @@ func (s *NodePortStrategy) Add(svc *v1.Service) error {
 		}
 	}
 
+	if portInt <= 0 {
+		s.todo[fmt.Sprintf("%s/%s", svc.Namespace, svc.Name)] = true
+	}
 	return nil
 }
 
-func (s *NodePortStrategy) Remove(svc *v1.Service) error {
+func (s *NodePortStrategy) Clean(svc *v1.Service) error {
+	delete(s.todo, fmt.Sprintf("%s/%s", svc.Namespace, svc.Name))
 	clone := svc.DeepCopy()
 	if !removeServiceAnnotation(clone) {
 		return nil
@@ -136,6 +149,12 @@ func (s *NodePortStrategy) Remove(svc *v1.Service) error {
 			return errors.Wrap(err, "failed to send patch")
 		}
 	}
+
+	return nil
+}
+
+func (s *NodePortStrategy) Delete(svc *v1.Service) error {
+	delete(s.todo, fmt.Sprintf("%s/%s", svc.Namespace, svc.Name))
 
 	return nil
 }

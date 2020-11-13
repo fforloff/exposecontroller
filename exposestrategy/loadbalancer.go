@@ -1,6 +1,8 @@
 package exposestrategy
 
 import (
+	"fmt"
+
 	"github.com/pkg/errors"
 
 	"k8s.io/api/core/v1"
@@ -8,7 +10,8 @@ import (
 )
 
 type LoadBalancerStrategy struct {
-	client  kubernetes.Interface
+	client kubernetes.Interface
+	todo   map[string]bool
 }
 
 func NewLoadBalancerStrategy(client kubernetes.Interface, config *ExposeStrategyConfig) (ExposeStrategy, error) {
@@ -18,10 +21,17 @@ func NewLoadBalancerStrategy(client kubernetes.Interface, config *ExposeStrategy
 }
 
 func (s *LoadBalancerStrategy) Sync() error {
+	s.todo = map[string]bool{}
 	return nil
 }
 
+func (s *LoadBalancerStrategy) HasSynced() bool {
+	return len(s.todo) == 0
+}
+
 func (s *LoadBalancerStrategy) Add(svc *v1.Service) error {
+	delete(s.todo, fmt.Sprintf("%s/%s", svc.Namespace, svc.Name))
+
 	var err error
 	clone := svc.DeepCopy()
 	clone.Spec.Type = v1.ServiceTypeLoadBalancer
@@ -42,10 +52,14 @@ func (s *LoadBalancerStrategy) Add(svc *v1.Service) error {
 		}
 	}
 
+	if clone.Spec.LoadBalancerIP == "" {
+		s.todo[fmt.Sprintf("%s/%s", svc.Namespace, svc.Name)] = true
+	}
 	return nil
 }
 
-func (s *LoadBalancerStrategy) Remove(svc *v1.Service) error {
+func (s *LoadBalancerStrategy) Clean(svc *v1.Service) error {
+	delete(s.todo, fmt.Sprintf("%s/%s", svc.Namespace, svc.Name))
 	clone := svc.DeepCopy()
 	if !removeServiceAnnotation(clone) {
 		return nil
@@ -63,6 +77,12 @@ func (s *LoadBalancerStrategy) Remove(svc *v1.Service) error {
 			return errors.Wrap(err, "failed to send patch")
 		}
 	}
+
+	return nil
+}
+
+func (s *LoadBalancerStrategy) Delete(svc *v1.Service) error {
+	delete(s.todo, fmt.Sprintf("%s/%s", svc.Namespace, svc.Name))
 
 	return nil
 }

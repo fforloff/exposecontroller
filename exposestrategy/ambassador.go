@@ -62,6 +62,10 @@ func (s *AmbassadorStrategy) Sync() error {
 	return nil
 }
 
+func (s *AmbassadorStrategy) HasSynced() bool {
+	return true
+}
+
 func (s *AmbassadorStrategy) Add(svc *v1.Service) error {
 	appName := svc.Annotations["fabric8.io/ingress.name"]
 	if appName == "" {
@@ -153,7 +157,7 @@ func (s *AmbassadorStrategy) Add(svc *v1.Service) error {
 		"kind":       "Mapping",
 		"host":       hostName,
 		"name":       fmt.Sprintf("%s_%s_mapping", hostName, svc.Namespace),
-		"service":    fmt.Sprintf("%s.%s:%s", appName, svc.Namespace, strconv.Itoa(servicePort)),
+		"service":    fmt.Sprintf("%s.%s:%s", svc.Name, svc.Namespace, strconv.Itoa(servicePort)),
 		"prefix":     path,
 	}
 
@@ -204,7 +208,7 @@ func (s *AmbassadorStrategy) Add(svc *v1.Service) error {
 	return nil
 }
 
-func (s *AmbassadorStrategy) Remove(svc *v1.Service) error {
+func (s *AmbassadorStrategy) Clean(svc *v1.Service) error {
 	clone := svc.DeepCopy()
 	if !removeServiceAnnotation(clone) {
 		return nil
@@ -225,5 +229,9 @@ func (s *AmbassadorStrategy) Remove(svc *v1.Service) error {
 				svc.Namespace, svc.Name)
 		}
 	}
+	return nil
+}
+
+func (s *AmbassadorStrategy) Delete(svc *v1.Service) error {
 	return nil
 }

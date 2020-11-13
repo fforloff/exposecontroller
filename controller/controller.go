@@ -22,27 +22,28 @@ import (
 )
 
 const (
+	// ExposeConfigURLProtocol annotation holds the field to export the protocol to
 	ExposeConfigURLProtocol                       = "expose.config.fabric8.io/url-protocol"
+	// ExposeConfigURLKeyAnnotation annotation holds the field to export the url to
 	ExposeConfigURLKeyAnnotation                  = "expose.config.fabric8.io/url-key"
+	// ExposeConfigHostKeyAnnotation annotation holds the field to export the host to
 	ExposeConfigHostKeyAnnotation                 = "expose.config.fabric8.io/host-key"
+	// ExposeConfigClusterPathKeyAnnotation annotation holds the field to export the path to
 	ExposeConfigClusterPathKeyAnnotation          = "expose.config.fabric8.io/path-key"
+	// ExposeConfigClusterIPKeyAnnotation annotation holds the field to export the .Spec.ClusterIP field to
 	ExposeConfigClusterIPKeyAnnotation            = "expose.config.fabric8.io/clusterip-key"
+	// ExposeConfigClusterIPPortKeyAnnotation annotation holds the field to export the clusterIP with port to
 	ExposeConfigClusterIPPortKeyAnnotation        = "expose.config.fabric8.io/clusterip-port-key"
+	// ExposeConfigClusterIPPortIfEmptyKeyAnnotation annotation holds the field to export the clusterIP with port to, but if the configmap's field is empty
 	ExposeConfigClusterIPPortIfEmptyKeyAnnotation = "expose.config.fabric8.io/clusterip-port-if-empty-key"
-	ExposeConfigApiServerKeyAnnotation            = "expose.config.fabric8.io/apiserver-key"
-	ExposeConfigApiServerURLKeyAnnotation         = "expose.config.fabric8.io/apiserver-url-key"
-	ExposeConfigConsoleURLKeyAnnotation           = "expose.config.fabric8.io/console-url-key"
-	ExposeConfigApiServerProtocolKeyAnnotation    = "expose.config.fabric8.io/apiserver-protocol-key"
-	ExposeConfigOAuthAuthorizeURLKeyAnnotation    = "expose.config.fabric8.io/oauth-authorize-url-key"
-
+	// ExposeConfigYamlAnnotation annotation holds the field to export the service's url as a yaml object
 	ExposeConfigYamlAnnotation = "expose.config.fabric8.io/config-yaml"
-
-	OAuthAuthorizeUrlEnvVar = "OAUTH_AUTHORIZE_URL"
 
 	updateOnChangeAnnotation = "configmap.fabric8.io/update-on-change"
 )
 
-func RunController(client kubernetes.Interface, namespace string, config *Config, timeout time.Duration) error {
+// Run runs the controller until synced or timeout
+func Run(client kubernetes.Interface, namespace string, config *Config, timeout time.Duration) error {
 	var hasSyncedTimeout <-chan time.Time
 	if timeout > 0*time.Second {
 		hasSyncedTimeout = time.After(timeout)
@@ -71,7 +72,8 @@ func RunController(client kubernetes.Interface, namespace string, config *Config
 	return err
 }
 
-func ControllerDaemon(client kubernetes.Interface, namespace string, config *Config, resyncPeriod time.Duration) (cache.Controller, error) {
+// Daemon returns a controller for a daemon run
+func Daemon(client kubernetes.Interface, namespace string, config *Config, resyncPeriod time.Duration) (cache.Controller, error) {
 	return createController(client, namespace, config, resyncPeriod, nil, nil)
 }
 
@@ -79,10 +81,6 @@ func createController(client kubernetes.Interface, namespace string, config *Con
 	strategy, err := getStrategy(client, namespace, config)
 	if err != nil {
 		return nil, err
-	}
-
-	if len(config.ApiServerProtocol) == 0 {
-		config.ApiServerProtocol = kubernetesServiceProtocol(client)
 	}
 
 	var controller cache.Controller
@@ -213,7 +211,7 @@ func getStrategy(client kubernetes.Interface, namespace string, config *Config) 
 	if testStrategy != nil {
 		return testStrategy, nil
 	}
-	strategy, err := exposestrategy.New(client, &exposestrategy.ExposeStrategyConfig{
+	strategy, err := exposestrategy.New(client, &exposestrategy.Config{
 		Exposer:        config.Exposer,
 		Namespace:      namespace,
 		NamePrefix:     config.NamePrefix,
@@ -264,28 +262,7 @@ func updateRelatedResources(c kubernetes.Interface, svc *v1.Service, config *Con
 	}
 }
 
-func kubernetesServiceProtocol(c kubernetes.Interface) string {
-	hasHttp := false
-	svc, err := c.CoreV1().Services("default").Get("kubernetes", metav1.GetOptions{})
-	if err != nil {
-		glog.Warningf("Could not find kubernetes service in the default namespace so we could not detect whether to use http or https as the apiserver protocol. Error: %v", err)
-	} else {
-		for _, port := range svc.Spec.Ports {
-			if port.Name == "https" || port.Port == 443 {
-				return "https"
-			}
-			if port.Name == "http" || port.Port == 80 {
-				hasHttp = true
-			}
-		}
-	}
-	if hasHttp {
-		return "http"
-	}
-	return "https"
-}
-
-func GetServicePort(svc *v1.Service) string {
+func getServicePort(svc *v1.Service) string {
 	for _, port := range svc.Spec.Ports {
 		tp := port.TargetPort.StrVal
 		if tp != "" {
@@ -299,7 +276,7 @@ func GetServicePort(svc *v1.Service) string {
 	return ""
 }
 
-type ConfigYaml struct {
+type configYaml struct {
 	Key        string
 	Expression string
 	Prefix     string
@@ -310,48 +287,8 @@ func updateServiceConfigMap(c kubernetes.Interface, svc *v1.Service, config *Con
 	name := svc.Name
 	ns := svc.Namespace
 	cm, err := c.CoreV1().ConfigMaps(ns).Get(name, metav1.GetOptions{})
-	apiserverURL := ""
-	apiserver := ""
-	apiserverProtocol := ""
 	if err == nil {
 		updated := false
-		apiserver = config.ApiServer
-		apiserverProtocol = config.ApiServerProtocol
-		consoleURL := config.ConsoleURL
-
-		if len(apiserver) > 0 {
-			apiserverURL = apiserverProtocol + "://" + apiserver
-			apiServerKey := cm.Annotations[ExposeConfigApiServerKeyAnnotation]
-			if len(apiServerKey) > 0 {
-				if cm.Data[apiServerKey] != apiserver {
-					cm.Data[apiServerKey] = apiserver
-					updated = true
-				}
-			}
-			apiServerURLKey := cm.Annotations[ExposeConfigApiServerURLKeyAnnotation]
-			if len(apiServerURLKey) > 0 {
-				if cm.Data[apiServerURLKey] != apiserverURL {
-					cm.Data[apiServerURLKey] = apiserverURL
-					updated = true
-				}
-			}
-		}
-		if len(consoleURL) > 0 {
-			consoleURLKey := cm.Annotations[ExposeConfigConsoleURLKeyAnnotation]
-			if len(consoleURLKey) > 0 {
-				if cm.Data[consoleURLKey] != consoleURL {
-					cm.Data[consoleURLKey] = consoleURL
-					updated = true
-				}
-			}
-		}
-		apiserverProtocolKey := cm.Annotations[ExposeConfigApiServerProtocolKeyAnnotation]
-		if len(apiserverProtocolKey) > 0 {
-			if cm.Data[apiserverProtocolKey] != apiserverProtocol {
-				cm.Data[apiserverProtocolKey] = apiserverProtocol
-				updated = true
-			}
-		}
 
 		clusterIP := svc.Spec.ClusterIP
 		if clusterIP != "" {
@@ -366,7 +303,7 @@ func updateServiceConfigMap(c kubernetes.Interface, svc *v1.Service, config *Con
 				}
 			}
 
-			port := GetServicePort(svc)
+			port := getServicePort(svc)
 			if port != "" {
 				clusterIPAndPort := clusterIP + ":" + port
 
@@ -419,25 +356,21 @@ func updateServiceConfigMap(c kubernetes.Interface, svc *v1.Service, config *Con
 				glog.Infof("Found key %s and has path %s\n", pathKey, path)
 			}
 
-			configYaml := svc.Annotations[ExposeConfigYamlAnnotation]
-			if configYaml != "" {
-				fmt.Printf("Procssing ConfigYaml on service %s\n", svc.Name)
-				configs := []ConfigYaml{}
-				err := yaml.Unmarshal([]byte(configYaml), &configs)
+			configYamlS := svc.Annotations[ExposeConfigYamlAnnotation]
+			if configYamlS != "" {
+				fmt.Printf("Processing yaml config on service %s\n", svc.Name)
+				configs := []configYaml{}
+				err := yaml.Unmarshal([]byte(configYamlS), &configs)
 				if err != nil {
-					glog.Errorf("Failed to unmarshal Config YAML on service %s due to %s : YAML: %s", svc.Name, err, configYaml)
+					glog.Errorf("Failed to unmarshal Config YAML on service %s due to %s : YAML: %s", svc.Name, err, configYamlS)
 				} else {
 					values := map[string]string{
 						"host":              host,
 						"url":               exposeURL,
-						"apiserver":         apiserver,
-						"apiserverURL":      apiserverURL,
-						"apiserverProtocol": apiserverProtocol,
-						"consoleURL":        consoleURL,
 					}
-					fmt.Printf("Loading ConfigYaml configurations %#v\n", configs)
+					fmt.Printf("Loading yaml config %#v\n", configs)
 					for _, c := range configs {
-						if c.UpdateConfigMap(cm, values) {
+						if c.updateConfigMap(cm, values) {
 							updated = true
 						}
 					}
@@ -463,7 +396,7 @@ func urlPath(urlText string) string {
 	answer := "/"
 	u, err := url.Parse(urlText)
 	if err != nil {
-		glog.Warningf("Could not parse exposeUrl: %s due to: %s", urlText, err)
+		glog.Warningf("Could not parse exposeURL: %s due to: %s", urlText, err)
 	} else {
 		if u.Path != "" {
 			answer = u.Path
@@ -488,20 +421,20 @@ func firstMapValue(key string, maps ...map[string]string) string {
 	return ""
 }
 
-func (c *ConfigYaml) UpdateConfigMap(configMap *v1.ConfigMap, values map[string]string) bool {
+func (c *configYaml) updateConfigMap(configMap *v1.ConfigMap, values map[string]string) bool {
 	key := c.Key
 	if key == "" {
-		glog.Warningf("ConfigMap %s does not have a key in ConfigYaml settings %#v\n", configMap.Name, c)
+		glog.Warningf("ConfigMap %s does not have a key in yaml config %#v\n", configMap.Name, c)
 		return false
 	}
 	expValue := values[c.Expression]
 	if expValue == "" {
-		glog.Warningf("Could not calculate expression %s from the ConfigYaml settings %#v possible values are %v\n", c.Expression, c, values)
+		glog.Warningf("Could not calculate expression %s from the yaml config %#v possible values are %v\n", c.Expression, c, values)
 		return false
 	}
 	value := configMap.Data[key]
 	if value == "" {
-		glog.Warningf("ConfigMap %s does not have a key %s when trying to apply the ConfigYaml settings %#v\n", configMap.Name, key, c)
+		glog.Warningf("ConfigMap %s does not have a key %s when trying to apply the yaml config %#v\n", configMap.Name, key, c)
 		return false
 	}
 	lines := strings.Split(value, "\n")

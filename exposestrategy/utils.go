@@ -14,7 +14,7 @@ import (
 	"k8s.io/apimachinery/pkg/util/strategicpatch"
 )
 
-func findHttpProtocol(svc *v1.Service, hostName string) string {
+func findHTTPProtocol(svc *v1.Service, hostName string) string {
 	// default to http
 	protocol := "http"
 
@@ -35,7 +35,7 @@ func findHttpProtocol(svc *v1.Service, hostName string) string {
 }
 
 func addServiceAnnotation(svc *v1.Service, hostName string) error {
-	protocol := findHttpProtocol(svc, hostName)
+	protocol := findHTTPProtocol(svc, hostName)
 	return addServiceAnnotationWithProtocol(svc, hostName, "", protocol)
 }
 
@@ -49,7 +49,7 @@ func addServiceAnnotationWithProtocol(svc *v1.Service, hostName, path, protocol 
 	}
 
 	exposeURL := protocol + "://" + hostName
-	if annotationPath, ok := svc.Annotations[ApiServicePathAnnotationKey]; ok {
+	if annotationPath, ok := svc.Annotations[APIServicePathAnnotationKey]; ok {
 		path = annotationPath
 	}
 	if len(path) > 0 {
@@ -130,18 +130,18 @@ func getURLFormat(urltemplate string) (string, error) {
 	placeholders := urlTemplateParts{"%[1]s", "%[2]s", "%[3]s"}
 	tmpl, err := template.New("format").Parse(urltemplate)
 	if err != nil {
-		errors.Wrap(err, "Failed to parse UrlTemplate")
+		errors.Wrap(err, "Failed to parse URLTemplate")
 	}
 	var buffer bytes.Buffer
 	err = tmpl.Execute(&buffer, placeholders)
 	if err != nil {
-		errors.Wrap(err, "Failed to execute UrlTemplate")
+		errors.Wrap(err, "Failed to execute URLTemplate")
 	}
 	return buffer.String(), nil
 }
 
-// UrlJoin joins the given paths so that there is only ever one '/' character between the paths
-func UrlJoin(paths ...string) string {
+// URLJoin joins the given paths so that there is only ever one '/' character between the paths
+func URLJoin(paths ...string) string {
 	var buffer bytes.Buffer
 	last := len(paths) - 1
 	for i, path := range paths {

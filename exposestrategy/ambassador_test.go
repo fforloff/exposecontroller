@@ -13,12 +13,12 @@ import (
 func TestAmbassadorStrategy_Add(t *testing.T) {
 	examples := []struct{
 		name     string
-		config   ExposeStrategyConfig
+		config   Config
 		svc      v1.Service
 		expected map[string]string
 	}{{
 		name:     "simple",
-		config:   ExposeStrategyConfig{
+		config:   Config{
 			Domain:      "my-domain.com",
 			URLTemplate: "{{.Service}}.{{.Namespace}}.{{.Domain}}",
 		},
@@ -50,7 +50,7 @@ prefix: /
 		},
 	}, {
 		name:     "TLSAcme",
-		config:   ExposeStrategyConfig{
+		config:   Config{
 			Domain:      "my-domain.com",
 			URLTemplate: "{{.Service}}.{{.Namespace}}.{{.Domain}}",
 			NamePrefix:  "my-prefix",
@@ -96,7 +96,7 @@ config:
 		},
 	}, {
 		name:     "TLSSecretName",
-		config:   ExposeStrategyConfig{
+		config:   Config{
 			Domain:        "my-domain.com",
 			URLTemplate:   "{{.Service}}-{{.Namespace}}.{{.Domain}}",
 			NamePrefix:    "my-prefix",

@@ -18,6 +18,7 @@ import (
 // 	PathModeUsePath = "path"
 // )
 
+// AmbassadorStrategy is a strategy that adds the ambassador annotations
 type AmbassadorStrategy struct {
 	client  kubernetes.Interface
 
@@ -29,7 +30,8 @@ type AmbassadorStrategy struct {
 	pathMode      string
 }
 
-func NewAmbassadorStrategy(client kubernetes.Interface, config *ExposeStrategyConfig) (ExposeStrategy, error) {
+// NewAmbassadorStrategy creates a new AmbassadorStrategy
+func NewAmbassadorStrategy(client kubernetes.Interface, config *Config) (ExposeStrategy, error) {
 
 	var err error
 	if len(config.Domain) == 0 {
@@ -58,14 +60,20 @@ func NewAmbassadorStrategy(client kubernetes.Interface, config *ExposeStrategyCo
 	}, nil
 }
 
+// Sync is called before starting / resyncing
+// Nothing to do
 func (s *AmbassadorStrategy) Sync() error {
 	return nil
 }
 
+// HasSynced tells if the strategy is complete
+// Nothing to do
 func (s *AmbassadorStrategy) HasSynced() bool {
 	return true
 }
 
+// Add is called when an exposed service is created or updated
+// Sets the ambassador annotations and various annotations
 func (s *AmbassadorStrategy) Add(svc *v1.Service) error {
 	appName := svc.Annotations["fabric8.io/ingress.name"]
 	if appName == "" {
@@ -82,7 +90,6 @@ func (s *AmbassadorStrategy) Add(svc *v1.Service) error {
 	}
 
 	hostName = fmt.Sprintf(s.urltemplate, hostName, svc.Namespace, s.domain)
-	// fullHostName := hostName
 	path := svc.Annotations["fabric8.io/ingress.path"]
 	pathMode := svc.Annotations["fabric8.io/path.mode"]
 	if pathMode == "" {
@@ -92,7 +99,7 @@ func (s *AmbassadorStrategy) Add(svc *v1.Service) error {
 		if path == "" {
 			path = "/"
 		}
-		path = UrlJoin("/", svc.Namespace, appName, path)
+		path = URLJoin("/", svc.Namespace, appName, path)
 		hostName = s.domain
 	} else if path == "" || path[0] != '/' {
 		path = "/" + path
@@ -208,6 +215,8 @@ func (s *AmbassadorStrategy) Add(svc *v1.Service) error {
 	return nil
 }
 
+// Clean is called when an exposed service is unexposed
+// Cleans the ambassador annotations and and various annotations
 func (s *AmbassadorStrategy) Clean(svc *v1.Service) error {
 	clone := svc.DeepCopy()
 	if !removeServiceAnnotation(clone) {
@@ -232,6 +241,8 @@ func (s *AmbassadorStrategy) Clean(svc *v1.Service) error {
 	return nil
 }
 
+// Delete is called when an exposed service is deleted
+// Nothing to do
 func (s *AmbassadorStrategy) Delete(svc *v1.Service) error {
 	return nil
 }

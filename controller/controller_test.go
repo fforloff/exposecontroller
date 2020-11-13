@@ -106,7 +106,7 @@ func (s *fakeStrategy) Delete(svc *v1.Service) error {
 	return nil
 }
 
-func TestRunController_controllerSynced(t *testing.T) {
+func TestRun_controllerSynced(t *testing.T) {
 	services := []runtime.Object{
 		&v1.Service{
 			ObjectMeta: metav1.ObjectMeta{
@@ -190,12 +190,12 @@ func TestRunController_controllerSynced(t *testing.T) {
 		testStrategy = nil
 	}()
 
-	err := RunController(client, "main", &Config{}, time.Second)
+	err := Run(client, "main", &Config{}, time.Second)
 	require.NoError(t, err)
 	strategy.checkEnd()
 }
 
-func TestRunController_strategySynced(t *testing.T) {
+func TestRun_strategySynced(t *testing.T) {
 	services := []runtime.Object{
 		&v1.Service{
 			ObjectMeta: metav1.ObjectMeta{
@@ -294,12 +294,12 @@ func TestRunController_strategySynced(t *testing.T) {
 		testStrategy = nil
 	}()
 
-	err := RunController(client, "main", &Config{}, time.Second)
+	err := Run(client, "main", &Config{}, time.Second)
 	require.NoError(t, err)
 	strategy.checkEnd()
 }
 
-func TestRunController_timeout(t *testing.T) {
+func TestRun_timeout(t *testing.T) {
 	services := []runtime.Object{
 		&v1.Service{
 			ObjectMeta: metav1.ObjectMeta{
@@ -330,12 +330,12 @@ func TestRunController_timeout(t *testing.T) {
 		testStrategy = nil
 	}()
 
-	err := RunController(client, "main", &Config{}, time.Second)
+	err := Run(client, "main", &Config{}, time.Second)
 	require.Error(t, err)
 	strategy.checkEnd()
 }
 
-func TestControllerDaemon(t *testing.T) {
+func TestDaemon(t *testing.T) {
 	services := []runtime.Object{
 		&v1.Service{
 			ObjectMeta: metav1.ObjectMeta{
@@ -444,7 +444,7 @@ func TestControllerDaemon(t *testing.T) {
 		testStrategy = nil
 	}()
 
-	controller, err := ControllerDaemon(client, "main", &Config{}, time.Hour)
+	controller, err := Daemon(client, "main", &Config{}, time.Hour)
 	require.NoError(t, err)
 	stopChan := make(chan struct{})
 	defer close(stopChan)

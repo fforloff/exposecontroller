@@ -19,9 +19,11 @@ import (
 )
 
 const (
+	// PathModeUsePath path mode tells to use "/<namespace>/name" as path
 	PathModeUsePath = "path"
 )
 
+// IngressStrategy is a strategy that creates ingresses for the services
 type IngressStrategy struct {
 	client         kubernetes.Interface
 	namespace      string
@@ -38,7 +40,8 @@ type IngressStrategy struct {
 	existing       map[string][]string
 }
 
-func NewIngressStrategy(client kubernetes.Interface, config *ExposeStrategyConfig) (ExposeStrategy, error) {
+// NewIngressStrategy creates a new NewIngressStrategy
+func NewIngressStrategy(client kubernetes.Interface, config *Config) (ExposeStrategy, error) {
 
 	var err error
 	if len(config.Domain) == 0 {
@@ -72,6 +75,7 @@ func NewIngressStrategy(client kubernetes.Interface, config *ExposeStrategyConfi
 	}, nil
 }
 
+// CleanIngressStrategy deletes all the ingresses created by the controller
 func CleanIngressStrategy(client kubernetes.Interface, namespace string) error {
 	// list all existing ingresses
 	selector, err := metav1.LabelSelectorAsSelector(&metav1.LabelSelector{
@@ -98,6 +102,8 @@ func CleanIngressStrategy(client kubernetes.Interface, namespace string) error {
 	return nil
 }
 
+// Sync is called before starting / resyncing
+// Get the current list of all ingresses created by the controller
 func (s *IngressStrategy) Sync() error {
 	// list all existing ingresses
 	selector, err := metav1.LabelSelectorAsSelector(&metav1.LabelSelector{
@@ -128,10 +134,15 @@ func (s *IngressStrategy) Sync() error {
 	return nil
 }
 
+// HasSynced tells if the strategy is complete
+// Nothing to do
 func (s *IngressStrategy) HasSynced() bool {
 	return true
 }
 
+// Add is called when an exposed service is created or updated
+// Creates or updates the related ingress, and deletes the others
+// Updates various service annotations
 func (s *IngressStrategy) Add(svc *v1.Service) error {
 	// choose the name of the ingress
 	appName := svc.Annotations["fabric8.io/ingress.name"]
@@ -173,7 +184,7 @@ func (s *IngressStrategy) Add(svc *v1.Service) error {
 		if path == "" {
 			path = "/"
 		}
-		path = UrlJoin("/", svc.Namespace, appName, path)
+		path = URLJoin("/", svc.Namespace, appName, path)
 		hostName = domain
 	} else if path != "" && path[0] != '/' {
 		path = "/" + path
@@ -366,6 +377,9 @@ func (s *IngressStrategy) Add(svc *v1.Service) error {
 	return nil
 }
 
+// Clean is called when an exposed service is unexposed
+// Deletes the related ingress
+// Cleans various ingress annotations
 func (s *IngressStrategy) Clean(svc *v1.Service) error {
 	svcKey := fmt.Sprintf("%s/%s", svc.Namespace, svc.Name)
 	for _, name := range s.existing[svcKey] {
@@ -404,6 +418,8 @@ func (s *IngressStrategy) Clean(svc *v1.Service) error {
 	return nil
 }
 
+// Delete is called when an exposed service is deleted
+// Delete the related ingresses
 func (s *IngressStrategy) Delete(svc *v1.Service) error {
 	svcKey := fmt.Sprintf("%s/%s", svc.Namespace, svc.Name)
 	for _, name := range s.existing[svcKey] {

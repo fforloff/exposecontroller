@@ -20,11 +20,11 @@ func TestNodePortStrategy_NodeIP(t *testing.T) {
 			},
 		},
 	})
-	strategy, err := NewNodePortStrategy(client, &ExposeStrategyConfig{})
+	strategy, err := NewNodePortStrategy(client, &Config{})
 	if assert.NoError(t, err) {
 		assert.Equal(t, "my-external-ip", strategy.(*NodePortStrategy).nodeIP)
 	}
-	strategy, err = NewNodePortStrategy(client, &ExposeStrategyConfig{
+	strategy, err = NewNodePortStrategy(client, &Config{
 		NodeIP: "my-node-ip",
 	})
 	if assert.NoError(t, err) {
@@ -45,11 +45,11 @@ func TestNodePortStrategy_NodeIP(t *testing.T) {
 			}},
 		},
 	})
-	strategy, err = NewNodePortStrategy(client, &ExposeStrategyConfig{})
+	strategy, err = NewNodePortStrategy(client, &Config{})
 	if assert.NoError(t, err) {
 		assert.Equal(t, "192.168.1.200", strategy.(*NodePortStrategy).nodeIP)
 	}
-	strategy, err = NewNodePortStrategy(client, &ExposeStrategyConfig{
+	strategy, err = NewNodePortStrategy(client, &Config{
 		NodeIP: "my-node-ip",
 	})
 	if assert.NoError(t, err) {
@@ -67,11 +67,11 @@ func TestNodePortStrategy_NodeIP(t *testing.T) {
 			}},
 		},
 	})
-	strategy, err = NewNodePortStrategy(client, &ExposeStrategyConfig{})
+	strategy, err = NewNodePortStrategy(client, &Config{})
 	if assert.NoError(t, err) {
 		assert.Equal(t, "192.168.1.100", strategy.(*NodePortStrategy).nodeIP)
 	}
-	strategy, err = NewNodePortStrategy(client, &ExposeStrategyConfig{
+	strategy, err = NewNodePortStrategy(client, &Config{
 		NodeIP: "my-node-ip",
 	})
 	if assert.NoError(t, err) {
@@ -83,9 +83,9 @@ func TestNodePortStrategy_NodeIP(t *testing.T) {
 			Name: "my-node",
 		},
 	})
-	strategy, err = NewNodePortStrategy(client, &ExposeStrategyConfig{})
+	strategy, err = NewNodePortStrategy(client, &Config{})
 	assert.Error(t, err)
-	strategy, err = NewNodePortStrategy(client, &ExposeStrategyConfig{
+	strategy, err = NewNodePortStrategy(client, &Config{
 		NodeIP: "my-node-ip",
 	})
 	if assert.NoError(t, err) {
@@ -110,7 +110,7 @@ func TestNodePortStrategy_Add(t *testing.T) {
 			}},
 		},
 	})
-	strategy, err := NewNodePortStrategy(client, &ExposeStrategyConfig{
+	strategy, err := NewNodePortStrategy(client, &Config{
 		NodeIP: "my-node-ip",
 	})
 	require.NoError(t, err)
@@ -246,7 +246,7 @@ func TestNodePortStrategy_Clean(t *testing.T) {
 	}
 
 	client := fake.NewSimpleClientset(svc2.DeepCopy())
-	strategy, err := NewNodePortStrategy(client, &ExposeStrategyConfig{
+	strategy, err := NewNodePortStrategy(client, &Config{
 		NodeIP: "my-node-ip",
 	})
 	require.NoError(t, err)
@@ -325,7 +325,7 @@ func TestNodePortStrategy_Delete(t *testing.T) {
 	}
 
 	client := fake.NewSimpleClientset()
-	strategy, err := NewNodePortStrategy(client, &ExposeStrategyConfig{
+	strategy, err := NewNodePortStrategy(client, &Config{
 		NodeIP: "my-node-ip",
 	})
 	require.NoError(t, err)

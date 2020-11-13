@@ -51,7 +51,7 @@ func TestAddServiceAnnotationWithProtocol(t *testing.T) {
 			svc: &v1.Service{
 				ObjectMeta: metav1.ObjectMeta{
 					Annotations: map[string]string{
-						ApiServicePathAnnotationKey: "some/path",
+						APIServicePathAnnotationKey: "some/path",
 					},
 				},
 			},
@@ -59,7 +59,7 @@ func TestAddServiceAnnotationWithProtocol(t *testing.T) {
 			path:     "other/path",
 			protocol: "https",
 			expectedAnnotations: map[string]string{
-				ApiServicePathAnnotationKey: "some/path",
+				APIServicePathAnnotationKey: "some/path",
 				ExposeAnnotationKey:         "https://example.com/some/path",
 			},
 		},
@@ -124,14 +124,14 @@ func TestRemoveServiceAnnotation(t *testing.T) {
 					Annotations: map[string]string{
 						ExposeHostNameAsAnnotationKey:        "osiris.deislabs.io/ingressHostname",
 						"osiris.deislabs.io/ingressHostname": "example.com",
-						ApiServicePathAnnotationKey:          "some/path",
+						APIServicePathAnnotationKey:          "some/path",
 						ExposeAnnotationKey:                  "http://example.com/some/path",
 					},
 				},
 			},
 			expectedAnnotations: map[string]string{
 				ExposeHostNameAsAnnotationKey: "osiris.deislabs.io/ingressHostname",
-				ApiServicePathAnnotationKey:   "some/path",
+				APIServicePathAnnotationKey:   "some/path",
 			},
 			ok:                  true,
 		},

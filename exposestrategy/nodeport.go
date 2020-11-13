@@ -12,16 +12,20 @@ import (
 	"k8s.io/client-go/kubernetes"
 )
 
+// NodePortStrategy is a strategy that changes the type of services to NodePort
 type NodePortStrategy struct {
 	client  kubernetes.Interface
 
 	nodeIP string
+	// The services to wait for their node port
 	todo   map[string]bool
 }
 
+// ExternalIPLabel is the node's label to export the external IP of the cluster
 const ExternalIPLabel = "fabric8.io/externalIP"
 
-func NewNodePortStrategy(client kubernetes.Interface, config *ExposeStrategyConfig) (ExposeStrategy, error) {
+// NewNodePortStrategy creates a new NodePortStrategy
+func NewNodePortStrategy(client kubernetes.Interface, config *Config) (ExposeStrategy, error) {
 	ip := config.NodeIP
 	if len(ip) == 0 {
 		l, err := client.CoreV1().Nodes().List(metav1.ListOptions{})
@@ -68,15 +72,22 @@ func getNodeHostIP(node v1.Node) (net.IP, error) {
 	return nil, fmt.Errorf("host IP unknown; known addresses: %v", addresses)
 }
 
+// Sync is called before starting / resyncing
+// init the todo map
 func (s *NodePortStrategy) Sync() error {
 	s.todo = map[string]bool{}
 	return nil
 }
 
+// HasSynced tells if the strategy is complete
+// Complete when todo is empty
 func (s *NodePortStrategy) HasSynced() bool {
 	return len(s.todo) == 0
 }
 
+// Add is called when an exposed service is created or updated
+// Changes the service type and updates various annotations
+// Adds the service to the todo list if the node port is unknown
 func (s *NodePortStrategy) Add(svc *v1.Service) error {
 	delete(s.todo, fmt.Sprintf("%s/%s", svc.Namespace, svc.Name))
 
@@ -130,6 +141,9 @@ func (s *NodePortStrategy) Add(svc *v1.Service) error {
 	return nil
 }
 
+// Clean is called when an exposed service is unexposed
+// Restores the service type and cleans various annotations
+// Clears the service form the todo list
 func (s *NodePortStrategy) Clean(svc *v1.Service) error {
 	delete(s.todo, fmt.Sprintf("%s/%s", svc.Namespace, svc.Name))
 	clone := svc.DeepCopy()
@@ -153,6 +167,8 @@ func (s *NodePortStrategy) Clean(svc *v1.Service) error {
 	return nil
 }
 
+// Delete is called when an exposed service is deleted
+// Clears the service form the todo list
 func (s *NodePortStrategy) Delete(svc *v1.Service) error {
 	delete(s.todo, fmt.Sprintf("%s/%s", svc.Namespace, svc.Name))
 

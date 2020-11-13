@@ -46,8 +46,6 @@ var (
 	domain                = flag.String("domain", "", "Domain to use with your DNS provider (default: .nip.io).")
 	filter                = flag.String("filter", "", "The filter of service names to look for when cleaning up")
 	exposer               = flag.String("exposer", "", "Which strategy exposecontroller should use to access applications")
-	apiserver             = flag.String("api-server", "", "API server URL")
-	consoleurl            = flag.String("console-server", "", "Console URL")
 	httpb                 = flag.Bool("http", false, `Use HTTP`)
 	watchNamespaces       = flag.String("watch-namespace", "", "Exposecontroller will only look at the provided namespace")
 	watchCurrentNamespace = flag.Bool("watch-current-namespace", true, `Exposecontroller will look at the current namespace only - (default: 'true' unless --watch-namespace specified)`)
@@ -137,12 +135,6 @@ func main() {
 	if *exposer != "" {
 		controllerConfig.Exposer = *exposer
 	}
-	if *apiserver != "" {
-		controllerConfig.ApiServer = *apiserver
-	}
-	if *consoleurl != "" {
-		controllerConfig.ConsoleURL = *consoleurl
-	}
 	if *httpb {
 		controllerConfig.HTTP = *httpb
 	}
@@ -180,14 +172,14 @@ func main() {
 
 	if *daemon {
 		glog.Infof("Watching services in namespaces: `%s`", watchNamespaces)
-		contr, err := controller.ControllerDaemon(kubeClient, watchNamespaces, controllerConfig, *resyncPeriod)
+		contr, err := controller.Daemon(kubeClient, watchNamespaces, controllerConfig, *resyncPeriod)
 		if err == nil {
 			go registerHandlers(contr)
 			contr.Run(wait.NeverStop)
 		}
 	} else {
 		glog.Infof("Running in : `%s`", watchNamespaces)
-		err = controller.RunController(kubeClient, watchNamespaces, controllerConfig, *timeout)
+		err = controller.Run(kubeClient, watchNamespaces, controllerConfig, *timeout)
 	}
 
 	if err != nil {

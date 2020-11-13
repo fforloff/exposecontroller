@@ -21,7 +21,8 @@ const (
 	stackpointIPEnvVar = "BALANCER_IP"
 )
 
-func NewAutoStrategy(client kubernetes.Interface, config *ExposeStrategyConfig) (ExposeStrategy, error) {
+// NewAutoStrategy creates a new strategy, choose automatically
+func NewAutoStrategy(client kubernetes.Interface, config *Config) (ExposeStrategy, error) {
 	var err error
 	config.Exposer, err = getAutoDefaultExposeRule(client)
 	if err != nil {

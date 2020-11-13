@@ -9,26 +9,36 @@ import (
 	"k8s.io/client-go/kubernetes"
 )
 
+// LoadBalancerStrategy is a strategy that changes the type of services to LoadBalancer
 type LoadBalancerStrategy struct {
 	client kubernetes.Interface
+	// The services to wait for their load balancer IP
 	todo   map[string]bool
 }
 
-func NewLoadBalancerStrategy(client kubernetes.Interface, config *ExposeStrategyConfig) (ExposeStrategy, error) {
+// NewLoadBalancerStrategy a new LoadBalancerStrategy
+func NewLoadBalancerStrategy(client kubernetes.Interface, config *Config) (ExposeStrategy, error) {
 	return &LoadBalancerStrategy{
 		client:  client,
 	}, nil
 }
 
+// Sync is called before starting / resyncing
+// init the todo map
 func (s *LoadBalancerStrategy) Sync() error {
 	s.todo = map[string]bool{}
 	return nil
 }
 
+// HasSynced tells if the strategy is complete
+// Complete when todo is empty
 func (s *LoadBalancerStrategy) HasSynced() bool {
 	return len(s.todo) == 0
 }
 
+// Add is called when an exposed service is created or updated
+// Changes the service type and updates various annotations
+// Adds the service to the todo list if the load balancer IP is unknown
 func (s *LoadBalancerStrategy) Add(svc *v1.Service) error {
 	delete(s.todo, fmt.Sprintf("%s/%s", svc.Namespace, svc.Name))
 
@@ -58,6 +68,9 @@ func (s *LoadBalancerStrategy) Add(svc *v1.Service) error {
 	return nil
 }
 
+// Clean is called when an exposed service is unexposed
+// Restores the service type and cleans various annotations
+// Clears the service form the todo list
 func (s *LoadBalancerStrategy) Clean(svc *v1.Service) error {
 	delete(s.todo, fmt.Sprintf("%s/%s", svc.Namespace, svc.Name))
 	clone := svc.DeepCopy()
@@ -81,6 +94,8 @@ func (s *LoadBalancerStrategy) Clean(svc *v1.Service) error {
 	return nil
 }
 
+// Delete is called when an exposed service is deleted
+// Clears the service form the todo list
 func (s *LoadBalancerStrategy) Delete(svc *v1.Service) error {
 	delete(s.todo, fmt.Sprintf("%s/%s", svc.Namespace, svc.Name))
 

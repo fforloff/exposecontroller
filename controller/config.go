@@ -10,6 +10,7 @@ import (
 	yaml "gopkg.in/yaml.v2"
 )
 
+// LoadFile loads the config from yaml file
 func LoadFile(path string) (*Config, bool, error) {
 	content, err := ioutil.ReadFile(path)
 
@@ -29,6 +30,7 @@ func LoadFile(path string) (*Config, bool, error) {
 	return c, exists, nil
 }
 
+// Load loads the config from yaml string
 func Load(s string) (*Config, error) {
 	cfg := &Config{}
 	// If the entire config body is empty the UnmarshalYAML method is
@@ -45,16 +47,14 @@ func Load(s string) (*Config, error) {
 	return cfg, nil
 }
 
+// Config is the global config of the program
 type Config struct {
 	Domain                string   `yaml:"domain,omitempty" json:"domain"`
 	InternalDomain        string   `yaml:"internal-domain,omitempty" json:"internal_domain"`
 	Exposer               string   `yaml:"exposer" json:"exposer"`
 	PathMode              string   `yaml:"path-mode" json:"path_mode"`
-	ApiServer             string   `yaml:"apiserver,omitempty" json:"api_server"`
 	NodeIP                string   `yaml:"node-ip,omitempty" json:"node_ip"`
-	ConsoleURL            string   `yaml:"console-url,omitempty" json:"console_url"`
 	AuthorizePath         string   `yaml:"authorize-path,omitempty" json:"authorize_path"`
-	ApiServerProtocol     string   `yaml:"apiserver-protocol" json:"api_server_protocol"`
 	WatchNamespaces       string   `yaml:"watch-namespaces" json:"watch_namespaces"`
 	WatchCurrentNamespace bool     `yaml:"watch-current-namespace" json:"watch_current_namespace"`
 	HTTP                  bool     `yaml:"http" json:"http"`
@@ -69,6 +69,7 @@ type Config struct {
 	original string `json:"original"`
 }
 
+// DefaultConfig is the default values of Config
 var (
 	DefaultConfig = Config{}
 )
@@ -83,20 +84,6 @@ func MapToConfig(data map[string]string) (*Config, error) {
 	}
 	err = yaml.Unmarshal(b, answer)
 	return answer, err
-}
-
-func (c *Config) UnmarshalYAML(unmarshal func(interface{}) error) error {
-	*c = DefaultConfig
-	// We want to set c to the defaults and then overwrite it with the input.
-	// To make unmarshal fill the plain data struct rather than calling UnmarshalYAML
-	// again, we have to hide it using a type indirection.
-	type plain Config
-	err := unmarshal((*plain)(c))
-	if err != nil {
-		return err
-	}
-
-	return nil
 }
 
 func (c Config) String() string {

@@ -25,7 +25,7 @@ func TestLoadBalancerStrategy_Add(t *testing.T) {
 			ClusterIP: "my-cluster-ip",
 		},
 	})
-	strategy, err := NewLoadBalancerStrategy(client, &ExposeStrategyConfig{})
+	strategy, err := NewLoadBalancerStrategy(client, &Config{})
 	require.NoError(t, err)
 	err = strategy.Sync()
 	require.NoError(t, err)
@@ -134,7 +134,7 @@ func TestLoadBalancerStrategy_Clean(t *testing.T) {
 	}
 
 	client := fake.NewSimpleClientset(svc2.DeepCopy())
-	strategy, err := NewLoadBalancerStrategy(client, &ExposeStrategyConfig{})
+	strategy, err := NewLoadBalancerStrategy(client, &Config{})
 	require.NoError(t, err)
 	err = strategy.Sync()
 	require.NoError(t, err)
@@ -202,7 +202,7 @@ func TestLoadBalancerStrategy_Delete(t *testing.T) {
 	}
 
 	client := fake.NewSimpleClientset()
-	strategy, err := NewLoadBalancerStrategy(client, &ExposeStrategyConfig{})
+	strategy, err := NewLoadBalancerStrategy(client, &Config{})
 	require.NoError(t, err)
 	err = strategy.Sync()
 	require.NoError(t, err)

@@ -697,7 +697,7 @@ func TestIngressStrategy_IngressTLSAcme(t *testing.T) {
 	}
 	client := fake.NewSimpleClientset(service)
 
-	strategy, err := NewIngressStrategy(client, &ExposeStrategyConfig{
+	strategy, err := NewIngressStrategy(client, &Config{
 		Exposer:        "ingress",
 		Namespace:      "main",
 		NamePrefix:     "prefix",
@@ -820,7 +820,7 @@ func TestIngressStrategy_IngressTLSSecretName(t *testing.T) {
 	}
 	client := fake.NewSimpleClientset(service)
 
-	strategy, err := NewIngressStrategy(client, &ExposeStrategyConfig{
+	strategy, err := NewIngressStrategy(client, &Config{
 		Exposer:        "ingress",
 		Namespace:      "main",
 		Domain:         "my-domain.com",
@@ -915,7 +915,7 @@ func TestIngressStrategy_IngressTLSSecretName(t *testing.T) {
 	}
 }
 
-const ingress_annotations = `
+const testIngressAnnotations = `
 sentence:  sentence with spaces
   # ignored comment
 quoted:    " quoted sentence "
@@ -946,7 +946,7 @@ func TestIngressStrategy_IngressAnnotations(t *testing.T) {
 				"fabric8.io/path.mode": "other",
 				ExposePortAnnotationKey: "456",
 				ExposeHostNameAsAnnotationKey: "my-exposed-hostname",
-				"fabric8.io/ingress.annotations": ingress_annotations,
+				"fabric8.io/ingress.annotations": testIngressAnnotations,
 			},
 			ResourceVersion: "1",
 			UID: "my-service-uid",
@@ -963,7 +963,7 @@ func TestIngressStrategy_IngressAnnotations(t *testing.T) {
 	}
 	client := fake.NewSimpleClientset(service)
 
-	strategy, err := NewIngressStrategy(client, &ExposeStrategyConfig{
+	strategy, err := NewIngressStrategy(client, &Config{
 		Exposer:        "ingress",
 		Namespace:      "main",
 		Domain:         "my-domain.com",
@@ -997,7 +997,7 @@ func TestIngressStrategy_IngressAnnotations(t *testing.T) {
 					"fabric8.io/path.mode": "other",
 					ExposePortAnnotationKey: "456",
 					ExposeHostNameAsAnnotationKey: "my-exposed-hostname",
-					"fabric8.io/ingress.annotations": ingress_annotations,
+					"fabric8.io/ingress.annotations": testIngressAnnotations,
 
 					"my-exposed-hostname": "main.my-hostname.my-internal-domain.com",
 					ExposeAnnotationKey: "http://main.my-hostname.my-internal-domain.com/my/path",

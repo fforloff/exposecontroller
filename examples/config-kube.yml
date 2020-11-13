@@ -1,8 +1,0 @@
----
-domain: 
-exposer:
-watch-current-namespace: true
-
-#exposer: Ingress
-#exposer: LoadBalancer
-#exposer: NodePort

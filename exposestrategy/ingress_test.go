@@ -1062,3 +1062,342 @@ func TestIngressStrategy_IngressAnnotations(t *testing.T) {
 		assert.Equalf(t, expectedI, ingress, "ingress")
 	}
 }
+
+func TestIngressStrategy_update(t *testing.T) {
+	svc := &v1.Service{
+		TypeMeta: metav1.TypeMeta{
+			Kind:       "Service",
+			APIVersion: "v1",
+		},
+		ObjectMeta: metav1.ObjectMeta{
+			Namespace: "ns",
+			Name: "svc",
+			Annotations: map[string]string {
+				ExposeAnnotation.Key: ExposeAnnotation.Value,
+			},
+		},
+		Spec: v1.ServiceSpec{
+			Ports: []v1.ServicePort{{
+				Port: 1234,
+			}, {
+				Port: 5678,
+			}},
+		},
+	}
+	client := fake.NewSimpleClientset(svc)
+	strategy, err := NewIngressStrategy(client, &Config{
+		Exposer:        "ingress",
+		Namespace:      "main",
+		Domain:         "my-domain.com",
+		URLTemplate:    "{{.Service}}.{{.Namespace}}.{{.Domain}}",
+	})
+	require.NoError(t, err)
+	require.NoError(t, strategy.Sync())
+
+	err = strategy.Add(svc.DeepCopy())
+	require.NoError(t, err)
+
+	expected := &v1beta1.Ingress{
+		ObjectMeta: metav1.ObjectMeta{
+			Namespace: "ns",
+			Name: "svc",
+			Labels: map[string]string{
+				"provider": "fabric8",
+			},
+			Annotations: map[string]string{
+				"fabric8.io/generated-by": "exposecontroller",
+			},
+			OwnerReferences: []metav1.OwnerReference{{
+				Kind:       "Service",
+				APIVersion: "v1",
+				Name:       "svc",
+			}},
+		},
+		Spec: v1beta1.IngressSpec{
+			Rules: []v1beta1.IngressRule{{
+				Host: "svc.ns.my-domain.com",
+				IngressRuleValue: v1beta1.IngressRuleValue{
+					HTTP: &v1beta1.HTTPIngressRuleValue{
+						Paths: []v1beta1.HTTPIngressPath{{
+							Backend: v1beta1.IngressBackend{
+								ServiceName: "svc",
+								ServicePort: intstr.FromInt(1234),
+							},
+							Path: "",
+						}},
+					},
+				},
+			}},
+		},
+	}
+
+	ingresses, err := client.ExtensionsV1beta1().Ingresses("ns").List(metav1.ListOptions{})
+	require.NoError(t, err)
+	if assert.Equal(t, 1, len(ingresses.Items)) {
+		assert.Equal(t, expected, &ingresses.Items[0])
+	}
+
+	expected.ResourceVersion = "1"
+	expected.UID = "test"
+	client.ExtensionsV1beta1().Ingresses("ns").Update(expected.DeepCopy())
+	err = strategy.Add(svc.DeepCopy())
+	require.NoError(t, err)
+	ingress, err := client.ExtensionsV1beta1().Ingresses("ns").Get(expected.Name, metav1.GetOptions{})
+	if assert.NoError(t, err) {
+		assert.Equal(t, expected, ingress)
+	}
+
+	svc = &v1.Service{
+		TypeMeta: metav1.TypeMeta{
+			Kind:       "Service",
+			APIVersion: "v1",
+		},
+		ObjectMeta: metav1.ObjectMeta{
+			Namespace: "ns",
+			Name: "svc",
+			Annotations: map[string]string {
+				ExposeAnnotation.Key: ExposeAnnotation.Value,
+				ExposePortAnnotationKey: "5678",
+			},
+		},
+		Spec: v1.ServiceSpec{
+			Ports: []v1.ServicePort{{
+				Port: 1234,
+			}, {
+				Port: 5678,
+			}},
+		},
+	}
+	err = strategy.Add(svc.DeepCopy())
+	require.NoError(t, err)
+
+	ingresses, err = client.ExtensionsV1beta1().Ingresses("ns").List(metav1.ListOptions{})
+	require.NoError(t, err)
+	expected = &v1beta1.Ingress{
+		ObjectMeta: metav1.ObjectMeta{
+			Namespace: "ns",
+			Name: "svc",
+			Labels: map[string]string{
+				"provider": "fabric8",
+			},
+			Annotations: map[string]string{
+				"fabric8.io/generated-by": "exposecontroller",
+			},
+			OwnerReferences: []metav1.OwnerReference{{
+				Kind:       "Service",
+				APIVersion: "v1",
+				Name:       "svc",
+			}},
+			ResourceVersion: "1",
+		},
+		Spec: v1beta1.IngressSpec{
+			Rules: []v1beta1.IngressRule{{
+				Host: "svc.ns.my-domain.com",
+				IngressRuleValue: v1beta1.IngressRuleValue{
+					HTTP: &v1beta1.HTTPIngressRuleValue{
+						Paths: []v1beta1.HTTPIngressPath{{
+							Backend: v1beta1.IngressBackend{
+								ServiceName: "svc",
+								ServicePort: intstr.FromInt(5678),
+							},
+							Path: "",
+						}},
+					},
+				},
+			}},
+		},
+	}
+	if assert.Equal(t, 1, len(ingresses.Items)) {
+		assert.Equal(t, expected, &ingresses.Items[0])
+	}
+
+	expected.ResourceVersion = "2"
+	expected.UID = "test"
+	client.ExtensionsV1beta1().Ingresses("ns").Update(expected.DeepCopy())
+	err = strategy.Add(svc.DeepCopy())
+	require.NoError(t, err)
+	ingress, err = client.ExtensionsV1beta1().Ingresses("ns").Get(expected.Name, metav1.GetOptions{})
+	if assert.NoError(t, err) {
+		assert.Equal(t, expected, ingress)
+	}
+
+	svc = &v1.Service{
+		TypeMeta: metav1.TypeMeta{
+			Kind:       "Service",
+			APIVersion: "v1",
+		},
+		ObjectMeta: metav1.ObjectMeta{
+			Namespace: "ns",
+			Name: "svc",
+			Annotations: map[string]string {
+				ExposeAnnotation.Key: ExposeAnnotation.Value,
+				ExposePortAnnotationKey: "5678",
+				"fabric8.io/ingress.name": "ingress",
+			},
+		},
+		Spec: v1.ServiceSpec{
+			Ports: []v1.ServicePort{{
+				Port: 1234,
+			}, {
+				Port: 5678,
+			}},
+		},
+	}
+	err = strategy.Add(svc.DeepCopy())
+	require.NoError(t, err)
+
+	ingresses, err = client.ExtensionsV1beta1().Ingresses("ns").List(metav1.ListOptions{})
+	require.NoError(t, err)
+	expected = &v1beta1.Ingress{
+		ObjectMeta: metav1.ObjectMeta{
+			Namespace: "ns",
+			Name: "ingress",
+			Labels: map[string]string{
+				"provider": "fabric8",
+			},
+			Annotations: map[string]string{
+				"fabric8.io/generated-by": "exposecontroller",
+			},
+			OwnerReferences: []metav1.OwnerReference{{
+				Kind:       "Service",
+				APIVersion: "v1",
+				Name:       "svc",
+			}},
+		},
+		Spec: v1beta1.IngressSpec{
+			Rules: []v1beta1.IngressRule{{
+				Host: "ingress.ns.my-domain.com",
+				IngressRuleValue: v1beta1.IngressRuleValue{
+					HTTP: &v1beta1.HTTPIngressRuleValue{
+						Paths: []v1beta1.HTTPIngressPath{{
+							Backend: v1beta1.IngressBackend{
+								ServiceName: "svc",
+								ServicePort: intstr.FromInt(5678),
+							},
+							Path: "",
+						}},
+					},
+				},
+			}},
+		},
+	}
+	if assert.Equal(t, 1, len(ingresses.Items)) {
+		assert.Equal(t, expected, &ingresses.Items[0])
+	}
+
+	expected.ResourceVersion = "3"
+	expected.UID = "test"
+	client.ExtensionsV1beta1().Ingresses("ns").Update(expected.DeepCopy())
+	err = strategy.Add(svc.DeepCopy())
+	require.NoError(t, err)
+	ingress, err = client.ExtensionsV1beta1().Ingresses("ns").Get(expected.Name, metav1.GetOptions{})
+	if assert.NoError(t, err) {
+		assert.Equal(t, expected, ingress)
+	}
+
+	svc = &v1.Service{
+		TypeMeta: metav1.TypeMeta{
+			Kind:       "Service",
+			APIVersion: "v1",
+		},
+		ObjectMeta: metav1.ObjectMeta{
+			Namespace: "ns",
+			Name: "svc",
+			Annotations: map[string]string {
+				ExposeAnnotation.Key: ExposeAnnotation.Value,
+				ExposePortAnnotationKey: "5678",
+				"fabric8.io/ingress.name": "ingress",
+				"fabric8.io/ingress.annotations": "custom: \"true\"\n",
+			},
+		},
+		Spec: v1.ServiceSpec{
+			Ports: []v1.ServicePort{{
+				Port: 1234,
+			}, {
+				Port: 5678,
+			}},
+		},
+	}
+	err = strategy.Add(svc.DeepCopy())
+	require.NoError(t, err)
+
+	ingresses, err = client.ExtensionsV1beta1().Ingresses("ns").List(metav1.ListOptions{})
+	require.NoError(t, err)
+	expected = &v1beta1.Ingress{
+		ObjectMeta: metav1.ObjectMeta{
+			Namespace: "ns",
+			Name: "ingress",
+			Labels: map[string]string{
+				"provider": "fabric8",
+			},
+			Annotations: map[string]string{
+				"fabric8.io/generated-by": "exposecontroller",
+				"custom": "true",
+			},
+			OwnerReferences: []metav1.OwnerReference{{
+				Kind:       "Service",
+				APIVersion: "v1",
+				Name:       "svc",
+			}},
+			ResourceVersion: "3",
+		},
+		Spec: v1beta1.IngressSpec{
+			Rules: []v1beta1.IngressRule{{
+				Host: "ingress.ns.my-domain.com",
+				IngressRuleValue: v1beta1.IngressRuleValue{
+					HTTP: &v1beta1.HTTPIngressRuleValue{
+						Paths: []v1beta1.HTTPIngressPath{{
+							Backend: v1beta1.IngressBackend{
+								ServiceName: "svc",
+								ServicePort: intstr.FromInt(5678),
+							},
+							Path: "",
+						}},
+					},
+				},
+			}},
+		},
+	}
+	if assert.Equal(t, 1, len(ingresses.Items)) {
+		assert.Equal(t, expected, &ingresses.Items[0])
+	}
+
+	expected.ResourceVersion = "4"
+	expected.UID = "test"
+	client.ExtensionsV1beta1().Ingresses("ns").Update(expected.DeepCopy())
+	err = strategy.Add(svc.DeepCopy())
+	require.NoError(t, err)
+	ingress, err = client.ExtensionsV1beta1().Ingresses("ns").Get(expected.Name, metav1.GetOptions{})
+	if assert.NoError(t, err) {
+		assert.Equal(t, expected, ingress)
+	}
+
+	svc = &v1.Service{
+		TypeMeta: metav1.TypeMeta{
+			Kind:       "Service",
+			APIVersion: "v1",
+		},
+		ObjectMeta: metav1.ObjectMeta{
+			Namespace: "ns",
+			Name: "svc",
+			Annotations: map[string]string {
+				ExposePortAnnotationKey: "5678",
+				"fabric8.io/ingress.name": "ingress",
+				"fabric8.io/ingress.annotations": "custom: \"true\"\n",
+			},
+		},
+		Spec: v1.ServiceSpec{
+			Ports: []v1.ServicePort{{
+				Port: 1234,
+			}, {
+				Port: 5678,
+			}},
+		},
+	}
+	err = strategy.Clean(svc.DeepCopy())
+	require.NoError(t, err)
+
+	ingresses, err = client.ExtensionsV1beta1().Ingresses("ns").List(metav1.ListOptions{})
+	require.NoError(t, err)
+	assert.Equal(t, 0, len(ingresses.Items))
+}

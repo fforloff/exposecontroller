@@ -1,6 +1,6 @@
 apiVersion: v1
-appVersion: v0.0.0
+appVersion: v0.0.1
 name: exposecontroller
 description: Controller for replicating secrets and configMaps across namespaces, and help with randomly generated passwords deployed with helm
-version: 0.0.0
+version: 0.0.1
 url: https://github.com/olli-ai/exposecontroller

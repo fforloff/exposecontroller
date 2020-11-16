@@ -6,9 +6,9 @@ import (
 	"strings"
 	"reflect"
 
-	"github.com/golang/glog"
 	"github.com/pkg/errors"
 	"gopkg.in/yaml.v2"
+	"k8s.io/klog"
 
 	"k8s.io/api/core/v1"
 	"k8s.io/api/extensions/v1beta1"
@@ -21,6 +21,8 @@ import (
 const (
 	// PathModeUsePath path mode tells to use "/<namespace>/name" as path
 	PathModeUsePath = "path"
+	ServiceAPIVersion = "v1"
+	ServiceKind = "Service"
 )
 
 // IngressStrategy is a strategy that creates ingresses for the services
@@ -50,14 +52,14 @@ func NewIngressStrategy(client kubernetes.Interface, config *Config) (ExposeStra
 			return nil, errors.Wrap(err, "failed to get a domain")
 		}
 	}
-	glog.Infof("Using domain: %s", config.Domain)
+	klog.Infof("Using domain: %s", config.Domain)
 
 	var urlformat string
 	urlformat, err = getURLFormat(config.URLTemplate)
 	if err != nil {
 		return nil, errors.Wrap(err, "failed to get a url format")
 	}
-	glog.Infof("Using url template [%s] format [%s]", config.URLTemplate, urlformat)
+	klog.Infof("Using url template [%s] format [%s]", config.URLTemplate, urlformat)
 
 	return &IngressStrategy{
 		client:         client,
@@ -205,7 +207,7 @@ func (s *IngressStrategy) Add(svc *v1.Service) error {
 			}
 		}
 		if !found {
-			glog.Warningf("port \"%s\" provided in the annotation \"%s\" is not available in the ports of service %s/%s",
+			klog.Warningf("port \"%s\" provided in the annotation \"%s\" is not available in the ports of service %s/%s",
 				exposePort, ExposePortAnnotationKey, svc.Namespace, svc.Name)
 			exposePort = ""
 		}
@@ -220,7 +222,7 @@ func (s *IngressStrategy) Add(svc *v1.Service) error {
 		return errors.Wrapf(err, "failed to convert the exposed port \"%s\" to int in service %s/%s",
 			exposePort, svc.Namespace, svc.Name)
 	}
-	glog.Infof("Exposing Port %d of Service %s/%s",
+	klog.Infof("Exposing Port %d of Service %s/%s",
 		servicePort, svc.Namespace, svc.Name)
 	// gather the annotations of the ingress
 	ingressAnnotations := map[string]string{}
@@ -271,8 +273,8 @@ func (s *IngressStrategy) Add(svc *v1.Service) error {
 			},
 			Annotations: ingressAnnotations,
 			OwnerReferences: []metav1.OwnerReference{{
-				Kind:       svc.Kind,
-				APIVersion: svc.APIVersion,
+				Kind:       ServiceKind,
+				APIVersion: ServiceAPIVersion,
 				Name:       svc.Name,
 				UID:        svc.UID,
 			}},
@@ -308,7 +310,7 @@ func (s *IngressStrategy) Add(svc *v1.Service) error {
 					deleteIngress(s.client, existing)
 				}
 			} else if !apierrors.IsNotFound(err) {
-				glog.Errorf("error when getting ingress %s/%s: %s",
+				klog.Errorf("error when getting ingress %s/%s: %s",
 					svc.Namespace, name, err)
 			}
 		}
@@ -323,7 +325,7 @@ func (s *IngressStrategy) Add(svc *v1.Service) error {
 		reflect.DeepEqual(ingress.Annotations, existing.Annotations) &&
 		reflect.DeepEqual(ingress.OwnerReferences, existing.OwnerReferences) &&
 		reflect.DeepEqual(ingress.Spec, existing.Spec) {
-			glog.Infof("ingress %s/%s already up to date for service %s/%s",
+			klog.Infof("ingress %s/%s already up to date for service %s/%s",
 				ingress.Namespace, ingress.Name, svc.Namespace, svc.Name)
 			return nil
 		}
@@ -333,7 +335,7 @@ func (s *IngressStrategy) Add(svc *v1.Service) error {
 		return errors.Wrapf(err, "could not check for existing ingress %s/%s", ingress.Namespace, ingress.Name)
 	}
 	// create or update the ingress
-	glog.Infof("processing ingress %s/%s for service %s/%s with http: %v, path mode: %s, and path: %s",
+	klog.Infof("processing ingress %s/%s for service %s/%s with http: %v, path mode: %s, and path: %s",
 		ingress.Namespace, ingress.Name, svc.Namespace, svc.Name, s.http, pathMode, path)
 
 	if ingress.ResourceVersion == "" {
@@ -390,7 +392,7 @@ func (s *IngressStrategy) Clean(svc *v1.Service) error {
 				deleteIngress(s.client, existing)
 			}
 		} else if !apierrors.IsNotFound(err) {
-			glog.Errorf("error when getting ingress %s/%s: %s",
+			klog.Errorf("error when getting ingress %s/%s: %s",
 				svc.Namespace, name, err)
 		}
 	}
@@ -430,7 +432,7 @@ func (s *IngressStrategy) Delete(svc *v1.Service) error {
 				deleteIngress(s.client, existing)
 			}
 		} else if !apierrors.IsNotFound(err) {
-			glog.Errorf("error when getting ingress %s/%s: %s",
+			klog.Errorf("error when getting ingress %s/%s: %s",
 				svc.Namespace, name, err)
 		}
 	}
@@ -445,10 +447,10 @@ func deleteIngress(client kubernetes.Interface, ingress *v1beta1.Ingress) {
 			ResourceVersion: &ingress.ResourceVersion,
 		},
 	}
-	glog.Infof("cleaning the ingress %s/%s", ingress.Namespace, ingress.Name)
+	klog.Infof("cleaning the ingress %s/%s", ingress.Namespace, ingress.Name)
 	err := client.ExtensionsV1beta1().Ingresses(ingress.Namespace).Delete(ingress.Name, &options)
 	if err != nil {
-		glog.Errorf("error when deleting ingress %s/%s: %s",
+		klog.Errorf("error when deleting ingress %s/%s: %s",
 			ingress.Namespace, ingress.Name, err)
 	}
 }
@@ -458,7 +460,7 @@ func getIngressService(ingress *v1beta1.Ingress) (string, bool) {
 		return "", false
 	} else if len(ingress.OwnerReferences) != 1 {
 		return "", true
-	} else if owner := ingress.OwnerReferences[0]; owner.Kind != "Service" {
+	} else if owner := ingress.OwnerReferences[0]; owner.Kind != ServiceKind || owner.APIVersion != ServiceAPIVersion {
 		return "", true
 	} else {
 		return fmt.Sprintf("%s/%s", ingress.Namespace, owner.Name), false

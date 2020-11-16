@@ -5,9 +5,9 @@ import (
 	"io/ioutil"
 	"os"
 
-	"github.com/golang/glog"
 	"github.com/pkg/errors"
 	yaml "gopkg.in/yaml.v2"
+	"k8s.io/klog"
 )
 
 // LoadFile loads the config from yaml file
@@ -20,7 +20,7 @@ func LoadFile(path string) (*Config, bool, error) {
 		if !os.IsNotExist(err) {
 			return nil, exists, errors.Wrap(err, "failed to read config file")
 		}
-		glog.Infof("No %s file found.  Will try to figure out defaults", path)
+		klog.Infof("No %s file found.  Will try to figure out defaults", path)
 	}
 
 	c, err := Load(string(content))

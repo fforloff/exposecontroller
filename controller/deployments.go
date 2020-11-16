@@ -2,10 +2,11 @@ package controller
 
 import (
 	"bytes"
-	"github.com/golang/glog"
-	"github.com/pkg/errors"
 	"sort"
 	"strings"
+
+	"github.com/pkg/errors"
+	"k8s.io/klog"
 
 	"k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -42,7 +43,7 @@ func rollingUpgradeDeployments(cm *v1.ConfigMap, c kubernetes.Interface) error {
 				if err != nil {
 					return errors.Wrap(err, "update deployment failed")
 				}
-				glog.Infof("Updated Deployment %s", d.Name)
+				klog.Infof("Updated Deployment %s", d.Name)
 			}
 		}
 	}
@@ -76,7 +77,7 @@ func updateContainers(containers []v1.Container, annotationValue, configMapVersi
 				if envs[j].Name == configmapEnvar {
 					matched = true
 					if envs[j].Value != configMapVersion {
-						glog.Infof("Updating %s to %s", configmapEnvar, configMapVersion)
+						klog.Infof("Updating %s to %s", configmapEnvar, configMapVersion)
 						envs[j].Value = configMapVersion
 						answer = true
 					}

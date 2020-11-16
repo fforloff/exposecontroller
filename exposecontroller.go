@@ -10,9 +10,9 @@ import (
 	"strings"
 	"time"
 
-	"github.com/golang/glog"
 	"github.com/olli-ai/exposecontroller/controller"
 	"github.com/olli-ai/exposecontroller/exposestrategy"
+	"k8s.io/klog"
 
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/util/wait"
@@ -52,26 +52,30 @@ var (
 	services              = flag.String("services", "", "List of comma separated service names which will be exposed, if empty all services from namespace will be considered")
 )
 
+func init() {
+	klog.InitFlags(nil)
+}
+
 func main() {
 	flag.Parse()
 
 	var restClientConfig *rest.Config
 	var err error
 	if *configFile == "" {
-		glog.Infof("using in-cluster configuration")
+		klog.Infof("using in-cluster configuration")
 		restClientConfig, err = rest.InClusterConfig()
 	} else {
-		glog.Infof("using configuration from '%s'", *configFile)
+		klog.Infof("using configuration from '%s'", *configFile)
 		restClientConfig, err = clientcmd.BuildConfigFromFlags("", *configFile)
 	}
 	if err != nil {
-		glog.Fatalf("failed to create REST client config: %s", err)
+		klog.Fatalf("failed to create REST client config: %s", err)
 	}
 
 	kubeClient, err := kubernetes.NewForConfig(restClientConfig)
 	for i := 0; i < 30; i++ {
 		if err != nil {
-			glog.Warningf("failed to create client, retrying: %s", err)
+			klog.Warningf("failed to create client, retrying: %s", err)
 			time.Sleep(1 * time.Second)
 			kubeClient, err = kubernetes.NewForConfig(restClientConfig)
 		} else {
@@ -79,7 +83,7 @@ func main() {
 		}
 	}
 	if err != nil {
-		glog.Fatalf("failed to create client: %s", err)
+		klog.Fatalf("failed to create client: %s", err)
 	}
 	currentNamespace := os.Getenv("KUBERNETES_NAMESPACE")
 	if len(currentNamespace) == 0 {
@@ -89,7 +93,7 @@ func main() {
 	controllerConfig, exists, err := controller.LoadFile(*configFile)
 	if !exists || err != nil {
 		if err != nil {
-			glog.Warningf("failed to load config file: %s", err)
+			klog.Warningf("failed to load config file: %s", err)
 		}
 
 		cc2 := tryFindConfig(kubeClient, currentNamespace)
@@ -101,17 +105,17 @@ func main() {
 				if labels != nil {
 					ns := labels["team"]
 					if ns == "" {
-						glog.Warningf("No 'team' label on Namespace %s", currentNamespace)
+						klog.Warningf("No 'team' label on Namespace %s", currentNamespace)
 					} else {
-						glog.Infof("trying to find the ConfigMap in the Dev Namespace %s", ns)
+						klog.Infof("trying to find the ConfigMap in the Dev Namespace %s", ns)
 
 						cc2 = tryFindConfig(kubeClient, ns)
 					}
 				} else {
-					glog.Warningf("No labels on Namespace %s", currentNamespace)
+					klog.Warningf("No labels on Namespace %s", currentNamespace)
 				}
 			} else {
-				glog.Warningf("Failed to load Namespace %s: %s", currentNamespace, err)
+				klog.Warningf("Failed to load Namespace %s: %s", currentNamespace, err)
 
 				// lets try default to trimming the lasts path from the current namespace
 				idx := strings.LastIndex(currentNamespace, "-")
@@ -125,9 +129,9 @@ func main() {
 			controllerConfig = cc2
 		}
 	} else {
-		glog.Infof("Loaded config file %s", *configFile)
+		klog.Infof("Loaded config file %s", *configFile)
 	}
-	glog.Infof("Config file before overrides %s", controllerConfig.String())
+	klog.Infof("Config file before overrides %s", controllerConfig.String())
 
 	if *domain != "" {
 		controllerConfig.Domain = *domain
@@ -151,13 +155,13 @@ func main() {
 		controllerConfig.Services = strings.Split(*services, ",")
 	}
 
-	glog.Infof("Config file after overrides %s", controllerConfig.String())
+	klog.Infof("Config file after overrides %s", controllerConfig.String())
 
 	//watchNamespaces := metav1.NamespaceAll
 	watchNamespaces := controllerConfig.WatchNamespaces
 	if controllerConfig.WatchCurrentNamespace {
 		if len(currentNamespace) == 0 {
-			glog.Fatalf("No current namespace found!")
+			klog.Fatalf("No current namespace found!")
 		}
 		watchNamespaces = currentNamespace
 	}
@@ -165,25 +169,25 @@ func main() {
 	if *cleanup {
 		err = exposestrategy.CleanIngressStrategy(kubeClient, watchNamespaces)
 		if err != nil {
-			glog.Fatalf("Could not clean: %v", err)
+			klog.Fatalf("Could not clean: %v", err)
 		}
 		return
 	}
 
 	if *daemon {
-		glog.Infof("Watching services in namespaces: `%s`", watchNamespaces)
+		klog.Infof("Watching services in namespaces: `%s`", watchNamespaces)
 		contr, err := controller.Daemon(kubeClient, watchNamespaces, controllerConfig, *resyncPeriod)
 		if err == nil {
 			go registerHandlers(contr)
 			contr.Run(wait.NeverStop)
 		}
 	} else {
-		glog.Infof("Running in : `%s`", watchNamespaces)
+		klog.Infof("Running in : `%s`", watchNamespaces)
 		err = controller.Run(kubeClient, watchNamespaces, controllerConfig, *timeout)
 	}
 
 	if err != nil {
-		glog.Fatalf("%s", err)
+		klog.Fatalf("%s", err)
 	}
 }
 
@@ -191,29 +195,29 @@ func tryFindConfig(kubeClient kubernetes.Interface, ns string) *controller.Confi
 	var controllerConfig *controller.Config
 	cm, err := kubeClient.CoreV1().ConfigMaps(ns).Get("exposecontroller", metav1.GetOptions{})
 	if err == nil {
-		glog.Infof("Using ConfigMap exposecontroller to load configuration...")
+		klog.Infof("Using ConfigMap exposecontroller to load configuration...")
 		// TODO we could allow the config to be passed in via key/value pairs?
 		text := cm.Data["config.yml"]
 		if text != "" {
 			controllerConfig, err = controller.Load(text)
 			if err != nil {
-				glog.Warningf("Could not parse the config text from exposecontroller ConfigMap  %v", err)
+				klog.Warningf("Could not parse the config text from exposecontroller ConfigMap  %v", err)
 			}
-			glog.Infof("Loaded ConfigMap exposecontroller to load configuration!")
+			klog.Infof("Loaded ConfigMap exposecontroller to load configuration!")
 		}
 	} else {
-		glog.Warningf("Could not find ConfigMap exposecontroller ConfigMap in namespace %s", ns)
+		klog.Warningf("Could not find ConfigMap exposecontroller ConfigMap in namespace %s", ns)
 
 		cm, err = kubeClient.CoreV1().ConfigMaps(ns).Get("ingress-config", metav1.GetOptions{})
 		if err != nil {
-			glog.Warningf("Could not find ConfigMap ingress-config ConfigMap in namespace %s", ns)
+			klog.Warningf("Could not find ConfigMap ingress-config ConfigMap in namespace %s", ns)
 		} else {
-			glog.Infof("Loaded ConfigMap ingress-config to load configuration!")
+			klog.Infof("Loaded ConfigMap ingress-config to load configuration!")
 			data := cm.Data
 			if data != nil {
 				controllerConfig, err = controller.MapToConfig(data)
 				if err != nil {
-					glog.Warningf("Failed to convert Map data %#v from configMap ingress-config in namespace %s due to: %s\n", controllerConfig, ns, err)
+					klog.Warningf("Failed to convert Map data %#v from configMap ingress-config in namespace %s due to: %s\n", controllerConfig, ns, err)
 				}
 			}
 		}
@@ -248,5 +252,5 @@ func registerHandlers(controller cache.Controller) {
 		Addr:    fmt.Sprintf(":%v", *healthzPort),
 		Handler: mux,
 	}
-	glog.Fatal(server.ListenAndServe())
+	klog.Fatal(server.ListenAndServe())
 }

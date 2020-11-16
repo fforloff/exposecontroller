@@ -6,9 +6,9 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/golang/glog"
 	"github.com/pkg/errors"
 	yaml "gopkg.in/yaml.v2"
+	"k8s.io/klog"
 
 	"k8s.io/api/core/v1"
 	"k8s.io/client-go/kubernetes"
@@ -40,14 +40,14 @@ func NewAmbassadorStrategy(client kubernetes.Interface, config *Config) (ExposeS
 			return nil, errors.Wrap(err, "failed to get a domain")
 		}
 	}
-	glog.Infof("Using domain: %s", config.Domain)
+	klog.Infof("Using domain: %s", config.Domain)
 
 	var urlformat string
 	urlformat, err = getURLFormat(config.URLTemplate)
 	if err != nil {
 		return nil, errors.Wrap(err, "failed to get a url format")
 	}
-	glog.Infof("Using url template [%s] format [%s]", config.URLTemplate, urlformat)
+	klog.Infof("Using url template [%s] format [%s]", config.URLTemplate, urlformat)
 
 	return &AmbassadorStrategy{
 		client:        client,
@@ -117,12 +117,12 @@ func (s *AmbassadorStrategy) Add(svc *v1.Service) error {
 				}
 			}
 			if !found {
-				glog.Warningf("Port '%s' provided in the annotation '%s' is not available in the ports of service '%s'",
+				klog.Warningf("Port '%s' provided in the annotation '%s' is not available in the ports of service '%s'",
 					exposePort, ExposePortAnnotationKey, svc.GetName())
 				exposePort = ""
 			}
 		} else {
-			glog.Warningf("Port '%s' provided in the annotation '%s' is not a valid number",
+			klog.Warningf("Port '%s' provided in the annotation '%s' is not a valid number",
 				exposePort, ExposePortAnnotationKey)
 			exposePort = ""
 		}
@@ -146,7 +146,7 @@ func (s *AmbassadorStrategy) Add(svc *v1.Service) error {
 		tlsSecretName = ""
 	}
 
-	glog.Infof("Exposing Port %d of Service %s", servicePort, svc.Name)
+	klog.Infof("Exposing Port %d of Service %s", servicePort, svc.Name)
 
 	clone := svc.DeepCopy()
 	if tlsSecretName != "" {

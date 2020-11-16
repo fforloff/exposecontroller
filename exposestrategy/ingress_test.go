@@ -79,8 +79,8 @@ func TestGetIngressService(t *testing.T) {
 				"fabric8.io/generated-by": "exposecontroller",
 			},
 			OwnerReferences: []metav1.OwnerReference{{
+				APIVersion: "v1",
 				Kind:       "Deployment",
-				APIVersion: "extensions/v1beta1",
 				Name:       "test-deployment",
 			}},
 		},
@@ -97,8 +97,8 @@ func TestGetIngressService(t *testing.T) {
 				"fabric8.io/generated-by": "exposecontroller",
 			},
 			OwnerReferences: []metav1.OwnerReference{{
-				Kind:       "Service",
 				APIVersion: "v1",
+				Kind:       "Service",
 				Name:       "test-service",
 			}},
 		},
@@ -115,12 +115,12 @@ func TestGetIngressService(t *testing.T) {
 				"fabric8.io/generated-by": "exposecontroller",
 			},
 			OwnerReferences: []metav1.OwnerReference{{
-				Kind:       "Service",
 				APIVersion: "v1",
+				Kind:       "Service",
 				Name:       "test-service-1",
 			}, {
-				Kind:       "Service",
 				APIVersion: "v1",
+				Kind:       "Service",
 				Name:       "test-service-2",
 			}},
 		},
@@ -147,8 +147,8 @@ func TestIngressStrategy_Sync(t *testing.T) {
 				"fabric8.io/generated-by": "exposecontroller",
 			},
 			OwnerReferences: []metav1.OwnerReference{{
-				Kind:       "Service",
 				APIVersion: "v1",
+				Kind:       "Service",
 				Name:       "service1",
 			}},
 			ResourceVersion: "1",
@@ -164,8 +164,8 @@ func TestIngressStrategy_Sync(t *testing.T) {
 				"fabric8.io/generated-by": "not-exposecontroller",
 			},
 			OwnerReferences: []metav1.OwnerReference{{
-				Kind:       "Service",
 				APIVersion: "v1",
+				Kind:       "Service",
 				Name:       "service2",
 			}},
 			ResourceVersion: "2",
@@ -205,8 +205,8 @@ func TestIngressStrategy_Sync(t *testing.T) {
 				"fabric8.io/generated-by": "exposecontroller",
 			},
 			OwnerReferences: []metav1.OwnerReference{{
-				Kind:       "Service",
 				APIVersion: "v1",
+				Kind:       "Service",
 				Name:       "service1",
 			}},
 			ResourceVersion: "5",
@@ -222,8 +222,8 @@ func TestIngressStrategy_Sync(t *testing.T) {
 				"fabric8.io/generated-by": "exposecontroller",
 			},
 			OwnerReferences: []metav1.OwnerReference{{
-				Kind:       "Service",
 				APIVersion: "v1",
+				Kind:       "Service",
 				Name:       "service2",
 			}},
 			ResourceVersion: "6",
@@ -276,10 +276,6 @@ func TestIngressStrategy_Sync(t *testing.T) {
 
 func TestIngressStrategy_Add(t *testing.T) {
 	service := &v1.Service{
-		TypeMeta: metav1.TypeMeta{
-			Kind:       "Service",
-			APIVersion: "v1",
-		},
 		ObjectMeta: metav1.ObjectMeta{
 			Namespace: "main",
 			Name: "source",
@@ -339,8 +335,8 @@ func TestIngressStrategy_Add(t *testing.T) {
 				"fabric8.io/generated-by": "exposecontroller",
 			},
 			OwnerReferences: []metav1.OwnerReference{{
-				Kind:       "Service",
 				APIVersion: "v1",
+				Kind:       "Service",
 				Name:       "other",
 			}},
 			ResourceVersion: "4",
@@ -356,12 +352,12 @@ func TestIngressStrategy_Add(t *testing.T) {
 				"fabric8.io/generated-by": "exposecontroller",
 			},
 			OwnerReferences: []metav1.OwnerReference{{
-				Kind:       "Service",
 				APIVersion: "v1",
+				Kind:       "Service",
 				Name:       "other",
 			}, {
-				Kind:       "Service",
 				APIVersion: "v1",
+				Kind:       "Service",
 				Name:       "another",
 			}},
 			ResourceVersion: "5",
@@ -377,8 +373,8 @@ func TestIngressStrategy_Add(t *testing.T) {
 				"fabric8.io/generated-by": "exposecontroller",
 			},
 			OwnerReferences: []metav1.OwnerReference{{
-				Kind:       "Service",
 				APIVersion: "v1",
+				Kind:       "Service",
 				Name:       "source",
 			}},
 			ResourceVersion: "6",
@@ -431,8 +427,8 @@ func TestIngressStrategy_Add(t *testing.T) {
 					"fabric8.io/generated-by": "exposecontroller",
 				},
 				OwnerReferences: []metav1.OwnerReference{{
-					Kind:       "Service",
 					APIVersion: "v1",
+					Kind:       "Service",
 					Name:       "source",
 				}},
 				ResourceVersion: "6",
@@ -460,10 +456,6 @@ func TestIngressStrategy_Add(t *testing.T) {
 	service, err = client.CoreV1().Services("main").Get("source", metav1.GetOptions{})
 	if assert.NoError(t, err, "get service") {
 		expectedS := &v1.Service{
-			TypeMeta: metav1.TypeMeta{
-				Kind:       "Service",
-				APIVersion: "v1",
-			},
 			ObjectMeta: metav1.ObjectMeta{
 				Namespace: "main",
 				Name: "source",
@@ -506,8 +498,8 @@ func TestIngressStrategy_Clean(t *testing.T) {
 					"fabric8.io/generated-by": "exposecontroller",
 				},
 				OwnerReferences: []metav1.OwnerReference{{
-					Kind:       "Service",
 					APIVersion: "v1",
+					Kind:       "Service",
 					Name:       "svc1",
 				}},
 			},
@@ -523,8 +515,8 @@ func TestIngressStrategy_Clean(t *testing.T) {
 					"fabric8.io/generated-by": "exposecontroller",
 				},
 				OwnerReferences: []metav1.OwnerReference{{
-					Kind:       "Service",
 					APIVersion: "v1",
+					Kind:       "Service",
 					Name:       "other",
 				}},
 			},
@@ -552,8 +544,8 @@ func TestIngressStrategy_Clean(t *testing.T) {
 					"fabric8.io/generated-by": "not-exposecontroller",
 				},
 				OwnerReferences: []metav1.OwnerReference{{
-					Kind:       "Service",
 					APIVersion: "v1",
+					Kind:       "Service",
 					Name:       "svc1",
 				}},
 			},
@@ -569,8 +561,8 @@ func TestIngressStrategy_Clean(t *testing.T) {
 					"fabric8.io/generated-by": "exposecontroller",
 				},
 				OwnerReferences: []metav1.OwnerReference{{
-					Kind:       "Service",
 					APIVersion: "v1",
+					Kind:       "Service",
 					Name:       "svc1",
 				}},
 			},
@@ -586,8 +578,8 @@ func TestIngressStrategy_Clean(t *testing.T) {
 					"fabric8.io/generated-by": "exposecontroller",
 				},
 				OwnerReferences: []metav1.OwnerReference{{
-					Kind:       "Service",
 					APIVersion: "v1",
+					Kind:       "Service",
 					Name:       "svc1",
 				}},
 			},
@@ -603,8 +595,8 @@ func TestIngressStrategy_Clean(t *testing.T) {
 					"fabric8.io/generated-by": "exposecontroller",
 				},
 				OwnerReferences: []metav1.OwnerReference{{
-					Kind:       "Service",
 					APIVersion: "v1",
+					Kind:       "Service",
 					Name:       "svc2",
 				}},
 			},
@@ -672,10 +664,6 @@ func TestIngressStrategy_Clean(t *testing.T) {
 
 func TestIngressStrategy_IngressTLSAcme(t *testing.T) {
 	service := &v1.Service{
-		TypeMeta: metav1.TypeMeta{
-			Kind:       "Service",
-			APIVersion: "v1",
-		},
 		ObjectMeta: metav1.ObjectMeta{
 			Namespace: "main",
 			Name: "my-service",
@@ -716,10 +704,6 @@ func TestIngressStrategy_IngressTLSAcme(t *testing.T) {
 	service, err = client.CoreV1().Services("main").Get("my-service", metav1.GetOptions{})
 	if assert.NoError(t, err, "get service") {
 		expectedS := &v1.Service{
-			TypeMeta: metav1.TypeMeta{
-				Kind:       "Service",
-				APIVersion: "v1",
-			},
 			ObjectMeta: metav1.ObjectMeta{
 				Namespace: "main",
 				Name: "my-service",
@@ -759,8 +743,8 @@ func TestIngressStrategy_IngressTLSAcme(t *testing.T) {
 					"kubernetes.io/tls-acme": "true",
 				},
 				OwnerReferences: []metav1.OwnerReference{{
-					Kind:       "Service",
 					APIVersion: "v1",
+					Kind:       "Service",
 					Name:       "my-service",
 					UID:        "my-service-uid",
 				}},
@@ -792,10 +776,6 @@ func TestIngressStrategy_IngressTLSAcme(t *testing.T) {
 
 func TestIngressStrategy_IngressTLSSecretName(t *testing.T) {
 	service := &v1.Service{
-		TypeMeta: metav1.TypeMeta{
-			Kind:       "Service",
-			APIVersion: "v1",
-		},
 		ObjectMeta: metav1.ObjectMeta{
 			Namespace: "main",
 			Name: "my-service",
@@ -839,10 +819,6 @@ func TestIngressStrategy_IngressTLSSecretName(t *testing.T) {
 	service, err = client.CoreV1().Services("main").Get("my-service", metav1.GetOptions{})
 	if assert.NoError(t, err, "get service") {
 		expectedS := &v1.Service{
-			TypeMeta: metav1.TypeMeta{
-				Kind:       "Service",
-				APIVersion: "v1",
-			},
 			ObjectMeta: metav1.ObjectMeta{
 				Namespace: "main",
 				Name: "my-service",
@@ -884,8 +860,8 @@ func TestIngressStrategy_IngressTLSSecretName(t *testing.T) {
 					"nginx.ingress.kubernetes.io/ingress.class": "nginx",
 				},
 				OwnerReferences: []metav1.OwnerReference{{
-					Kind:       "Service",
 					APIVersion: "v1",
+					Kind:       "Service",
 					Name:       "my-service",
 					UID:        "my-service-uid",
 				}},
@@ -930,10 +906,6 @@ kubernetes.io/ingress.class: other
 
 func TestIngressStrategy_IngressAnnotations(t *testing.T) {
 	service := &v1.Service{
-		TypeMeta: metav1.TypeMeta{
-			Kind:       "Service",
-			APIVersion: "v1",
-		},
 		ObjectMeta: metav1.ObjectMeta{
 			Namespace: "main",
 			Name: "my-service",
@@ -981,10 +953,6 @@ func TestIngressStrategy_IngressAnnotations(t *testing.T) {
 	service, err = client.CoreV1().Services("main").Get("my-service", metav1.GetOptions{})
 	if assert.NoError(t, err, "get service") {
 		expectedS := &v1.Service{
-			TypeMeta: metav1.TypeMeta{
-				Kind:       "Service",
-				APIVersion: "v1",
-			},
 			ObjectMeta: metav1.ObjectMeta{
 				Namespace: "main",
 				Name: "my-service",
@@ -1036,8 +1004,8 @@ func TestIngressStrategy_IngressAnnotations(t *testing.T) {
 					"multiline": "multi line\nsentence",
 				},
 				OwnerReferences: []metav1.OwnerReference{{
-					Kind:       "Service",
 					APIVersion: "v1",
+					Kind:       "Service",
 					Name:       "my-service",
 					UID:        "my-service-uid",
 				}},
@@ -1065,10 +1033,6 @@ func TestIngressStrategy_IngressAnnotations(t *testing.T) {
 
 func TestIngressStrategy_update(t *testing.T) {
 	svc := &v1.Service{
-		TypeMeta: metav1.TypeMeta{
-			Kind:       "Service",
-			APIVersion: "v1",
-		},
 		ObjectMeta: metav1.ObjectMeta{
 			Namespace: "ns",
 			Name: "svc",
@@ -1108,8 +1072,8 @@ func TestIngressStrategy_update(t *testing.T) {
 				"fabric8.io/generated-by": "exposecontroller",
 			},
 			OwnerReferences: []metav1.OwnerReference{{
-				Kind:       "Service",
 				APIVersion: "v1",
+				Kind:       "Service",
 				Name:       "svc",
 			}},
 		},
@@ -1148,10 +1112,6 @@ func TestIngressStrategy_update(t *testing.T) {
 	}
 
 	svc = &v1.Service{
-		TypeMeta: metav1.TypeMeta{
-			Kind:       "Service",
-			APIVersion: "v1",
-		},
 		ObjectMeta: metav1.ObjectMeta{
 			Namespace: "ns",
 			Name: "svc",
@@ -1184,8 +1144,8 @@ func TestIngressStrategy_update(t *testing.T) {
 				"fabric8.io/generated-by": "exposecontroller",
 			},
 			OwnerReferences: []metav1.OwnerReference{{
-				Kind:       "Service",
 				APIVersion: "v1",
+				Kind:       "Service",
 				Name:       "svc",
 			}},
 			ResourceVersion: "1",
@@ -1222,10 +1182,6 @@ func TestIngressStrategy_update(t *testing.T) {
 	}
 
 	svc = &v1.Service{
-		TypeMeta: metav1.TypeMeta{
-			Kind:       "Service",
-			APIVersion: "v1",
-		},
 		ObjectMeta: metav1.ObjectMeta{
 			Namespace: "ns",
 			Name: "svc",
@@ -1259,8 +1215,8 @@ func TestIngressStrategy_update(t *testing.T) {
 				"fabric8.io/generated-by": "exposecontroller",
 			},
 			OwnerReferences: []metav1.OwnerReference{{
-				Kind:       "Service",
 				APIVersion: "v1",
+				Kind:       "Service",
 				Name:       "svc",
 			}},
 		},
@@ -1296,10 +1252,6 @@ func TestIngressStrategy_update(t *testing.T) {
 	}
 
 	svc = &v1.Service{
-		TypeMeta: metav1.TypeMeta{
-			Kind:       "Service",
-			APIVersion: "v1",
-		},
 		ObjectMeta: metav1.ObjectMeta{
 			Namespace: "ns",
 			Name: "svc",
@@ -1335,8 +1287,8 @@ func TestIngressStrategy_update(t *testing.T) {
 				"custom": "true",
 			},
 			OwnerReferences: []metav1.OwnerReference{{
-				Kind:       "Service",
 				APIVersion: "v1",
+				Kind:       "Service",
 				Name:       "svc",
 			}},
 			ResourceVersion: "3",
@@ -1373,10 +1325,6 @@ func TestIngressStrategy_update(t *testing.T) {
 	}
 
 	svc = &v1.Service{
-		TypeMeta: metav1.TypeMeta{
-			Kind:       "Service",
-			APIVersion: "v1",
-		},
 		ObjectMeta: metav1.ObjectMeta{
 			Namespace: "ns",
 			Name: "svc",

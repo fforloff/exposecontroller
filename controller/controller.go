@@ -8,9 +8,9 @@ import (
 	"strings"
 	"time"
 
-	"github.com/golang/glog"
 	"github.com/pkg/errors"
 	yaml "gopkg.in/yaml.v2"
+	"k8s.io/klog"
 
 	"k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -106,7 +106,7 @@ func createController(client kubernetes.Interface, namespace string, config *Con
 				}
 				err := strategy.Add(svc)
 				if err != nil {
-					glog.Errorf("Add failed: %v", err)
+					klog.Errorf("Add failed: %v", err)
 				}
 				updateRelatedResources(client, svc, config)
 			} else if isSyncing {
@@ -115,7 +115,7 @@ func createController(client kubernetes.Interface, namespace string, config *Con
 				}
 				err := strategy.Clean(svc)
 				if err != nil {
-					glog.Errorf("Remove failed: %v", err)
+					klog.Errorf("Remove failed: %v", err)
 				}
 				if (needCheckSynced) {
 					needCheckSynced = false
@@ -137,7 +137,7 @@ func createController(client kubernetes.Interface, namespace string, config *Con
 				}
 				err := strategy.Add(svc)
 				if err != nil {
-					glog.Errorf("Add failed: %v", err)
+					klog.Errorf("Add failed: %v", err)
 				}
 				updateRelatedResources(client, svc, config)
 			} else if shouldExposeService(oldObj.(*v1.Service)) {
@@ -146,7 +146,7 @@ func createController(client kubernetes.Interface, namespace string, config *Con
 				}
 				err := strategy.Clean(svc)
 				if err != nil {
-					glog.Errorf("Remove failed: %v", err)
+					klog.Errorf("Remove failed: %v", err)
 				}
 			} else {
 				return
@@ -164,7 +164,7 @@ func createController(client kubernetes.Interface, namespace string, config *Con
 				}
 				err := strategy.Delete(svc)
 				if err != nil {
-					glog.Errorf("Remove failed: %v", err)
+					klog.Errorf("Remove failed: %v", err)
 				}
 			} else {
 				return
@@ -326,7 +326,7 @@ func updateServiceConfigMap(c kubernetes.Interface, svc *v1.Service, config *Con
 			host := ""
 			url, err := url.Parse(exposeURL)
 			if err != nil {
-				glog.Errorf("Failed to parse expose URL %s for service %s  error: %v", exposeURL, name, err)
+				klog.Errorf("Failed to parse expose URL %s for service %s  error: %v", exposeURL, name, err)
 
 			} else {
 				host = url.Host
@@ -353,7 +353,7 @@ func updateServiceConfigMap(c kubernetes.Interface, svc *v1.Service, config *Con
 					cm.Data[pathKey] = path
 					updated = true
 				}
-				glog.Infof("Found key %s and has path %s\n", pathKey, path)
+				klog.Infof("Found key %s and has path %s\n", pathKey, path)
 			}
 
 			configYamlS := svc.Annotations[ExposeConfigYamlAnnotation]
@@ -362,7 +362,7 @@ func updateServiceConfigMap(c kubernetes.Interface, svc *v1.Service, config *Con
 				configs := []configYaml{}
 				err := yaml.Unmarshal([]byte(configYamlS), &configs)
 				if err != nil {
-					glog.Errorf("Failed to unmarshal Config YAML on service %s due to %s : YAML: %s", svc.Name, err, configYamlS)
+					klog.Errorf("Failed to unmarshal Config YAML on service %s due to %s : YAML: %s", svc.Name, err, configYamlS)
 				} else {
 					values := map[string]string{
 						"host":              host,
@@ -378,14 +378,14 @@ func updateServiceConfigMap(c kubernetes.Interface, svc *v1.Service, config *Con
 			}
 		}
 		if updated {
-			glog.Infof("Updating ConfigMap %s/%s", ns, name)
+			klog.Infof("Updating ConfigMap %s/%s", ns, name)
 			_, err = c.CoreV1().ConfigMaps(ns).Update(cm)
 			if err != nil {
-				glog.Errorf("Failed to update ConfigMap %s error: %v", name, err)
+				klog.Errorf("Failed to update ConfigMap %s error: %v", name, err)
 			}
 			err = rollingUpgradeDeployments(cm, c)
 			if err != nil {
-				glog.Errorf("Failed to update Deployments after change to ConfigMap %s error: %v", name, err)
+				klog.Errorf("Failed to update Deployments after change to ConfigMap %s error: %v", name, err)
 			}
 		}
 	}
@@ -396,7 +396,7 @@ func urlPath(urlText string) string {
 	answer := "/"
 	u, err := url.Parse(urlText)
 	if err != nil {
-		glog.Warningf("Could not parse exposeURL: %s due to: %s", urlText, err)
+		klog.Warningf("Could not parse exposeURL: %s due to: %s", urlText, err)
 	} else {
 		if u.Path != "" {
 			answer = u.Path
@@ -424,17 +424,17 @@ func firstMapValue(key string, maps ...map[string]string) string {
 func (c *configYaml) updateConfigMap(configMap *v1.ConfigMap, values map[string]string) bool {
 	key := c.Key
 	if key == "" {
-		glog.Warningf("ConfigMap %s does not have a key in yaml config %#v\n", configMap.Name, c)
+		klog.Warningf("ConfigMap %s does not have a key in yaml config %#v\n", configMap.Name, c)
 		return false
 	}
 	expValue := values[c.Expression]
 	if expValue == "" {
-		glog.Warningf("Could not calculate expression %s from the yaml config %#v possible values are %v\n", c.Expression, c, values)
+		klog.Warningf("Could not calculate expression %s from the yaml config %#v possible values are %v\n", c.Expression, c, values)
 		return false
 	}
 	value := configMap.Data[key]
 	if value == "" {
-		glog.Warningf("ConfigMap %s does not have a key %s when trying to apply the yaml config %#v\n", configMap.Name, key, c)
+		klog.Warningf("ConfigMap %s does not have a key %s when trying to apply the yaml config %#v\n", configMap.Name, key, c)
 		return false
 	}
 	lines := strings.Split(value, "\n")
@@ -481,7 +481,7 @@ func updateOtherConfigMaps(c kubernetes.Interface, svc *v1.Service, config *Conf
 				value := cm.Data[key]
 				if value != exposeURL {
 					cm.Data[key] = exposeURL
-					glog.Infof("Updating ConfigMap %s in namespace %s with key %s", cm.Name, ns, key)
+					klog.Infof("Updating ConfigMap %s in namespace %s with key %s", cm.Name, ns, key)
 					update = true
 				}
 			}
@@ -496,7 +496,7 @@ func updateOtherConfigMaps(c kubernetes.Interface, svc *v1.Service, config *Conf
 				value := cm.Data[key]
 				if value != exposeURL {
 					cm.Data[key] = exposeURL
-					glog.Infof("Updating ConfigMap %s in namespace %s with key %s", cm.Name, ns, key)
+					klog.Infof("Updating ConfigMap %s in namespace %s with key %s", cm.Name, ns, key)
 					update = true
 				}
 			}
@@ -508,7 +508,7 @@ func updateOtherConfigMaps(c kubernetes.Interface, svc *v1.Service, config *Conf
 		if len(updateKey) > 0 {
 			u, err := url.Parse(exposeURL)
 			if err != nil {
-				glog.Warningf("Failed to parse URL %s due to %s", exposeURL, err)
+				klog.Warningf("Failed to parse URL %s due to %s", exposeURL, err)
 			} else {
 				u.Path = "/"
 				noPathURL := u.String()
@@ -517,7 +517,7 @@ func updateOtherConfigMaps(c kubernetes.Interface, svc *v1.Service, config *Conf
 					value := cm.Data[key]
 					if value != noPathURL {
 						cm.Data[key] = noPathURL
-						glog.Infof("Updating ConfigMap %s in namespace %s with key %s", cm.Name, ns, key)
+						klog.Infof("Updating ConfigMap %s in namespace %s with key %s", cm.Name, ns, key)
 						update = true
 					}
 				}
@@ -536,7 +536,7 @@ func updateOtherConfigMaps(c kubernetes.Interface, svc *v1.Service, config *Conf
 				value := cm.Data[key]
 				if value != exposeURL {
 					cm.Data[key] = exposeURL
-					glog.Infof("Updating ConfigMap %s in namespace %s with key %s", cm.Name, ns, key)
+					klog.Infof("Updating ConfigMap %s in namespace %s with key %s", cm.Name, ns, key)
 					update = true
 				}
 			}
@@ -553,7 +553,7 @@ func updateOtherConfigMaps(c kubernetes.Interface, svc *v1.Service, config *Conf
 				value := cm.Data[key]
 				if value != exposeURL {
 					cm.Data[key] = exposeURL
-					glog.Infof("Updating ConfigMap %s in namespace %s with key %s", cm.Name, ns, key)
+					klog.Infof("Updating ConfigMap %s in namespace %s with key %s", cm.Name, ns, key)
 					update = true
 				}
 			}
@@ -569,7 +569,7 @@ func updateOtherConfigMaps(c kubernetes.Interface, svc *v1.Service, config *Conf
 				value := cm.Data[key]
 				if value != protocol {
 					cm.Data[key] = protocol
-					glog.Infof("Updating ConfigMap %s in namespace %s with key %s", cm.Name, ns, key)
+					klog.Infof("Updating ConfigMap %s in namespace %s with key %s", cm.Name, ns, key)
 					update = true
 				}
 			}

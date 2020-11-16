@@ -3,8 +3,8 @@ package exposestrategy
 import (
 	"strings"
 
-	"github.com/golang/glog"
 	"github.com/pkg/errors"
+	"k8s.io/klog"
 
 	"k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -28,7 +28,7 @@ func NewAutoStrategy(client kubernetes.Interface, config *Config) (ExposeStrateg
 	if err != nil {
 		return nil, errors.Wrap(err, "failed to automatically get exposer rule.  consider setting 'exposer' type in config.yml")
 	}
-	glog.Infof("Using exposer strategy: %s", config.Exposer)
+	klog.Infof("Using exposer strategy: %s", config.Exposer)
 
 	// only try to get domain if we need wildcard dns and one wasn't given to us
 	if config.Domain == "" && (strings.EqualFold(ingress, config.Exposer)) {
@@ -36,7 +36,7 @@ func NewAutoStrategy(client kubernetes.Interface, config *Config) (ExposeStrateg
 		if err != nil {
 			return nil, errors.Wrap(err, "failed to get a domain")
 		}
-		glog.Infof("Using domain: %s", config.Domain)
+		klog.Infof("Using domain: %s", config.Domain)
 	}
 
 	return New(client, config)

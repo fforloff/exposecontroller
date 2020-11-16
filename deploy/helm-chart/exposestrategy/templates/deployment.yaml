@@ -1,0 +1,68 @@
+{{- if .Values.daemon -}}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "exposecontroller.fullname" . }}
+  labels:
+    app.kubernetes.io/name: {{ include "exposecontroller.name" . }}
+    helm.sh/chart: {{ include "exposecontroller.chart" . }}
+    app.kubernetes.io/instance: {{ .Release.Name }}
+    app.kubernetes.io/managed-by: {{ .Release.Service }}
+{{- if .Values.Annotations }}
+  annotations:
+{{ toYaml .Values.Annotations | indent 4 }}
+{{- end }}
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: {{ include "exposecontroller.name" . }}
+      app.kubernetes.io/instance: {{ .Release.Name }}
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: {{ include "exposecontroller.name" . }}
+        app.kubernetes.io/instance: {{ .Release.Name }}
+    spec:
+      containers:
+      - name: exposecontroller
+        image: "{{ .Values.image.repository }}:{{ default .Chart.Version .Values.image.tag }}"
+        imagePullPolicy: {{ .Values.image.pullPolicy }}
+        command:
+        - /exposecontroller
+        - --daemon
+{{- range .Values.Args }}
+        - {{ . | quote }}
+{{- end }}
+        env:
+        - name: KUBERNETES_NAMESPACE
+          valueFrom:
+            fieldRef:
+              fieldPath: metadata.namespace
+        ports:
+        - name: health
+          containerPort: 10254
+        readinessProbe:
+          httpGet:
+            path: /healthz
+            port: health
+        livenessProbe:
+          httpGet:
+            path: /healthz
+            port: health
+        resources:
+          {{- toYaml .Values.resources | nindent 12 }}
+      serviceAccountName: {{ include "exposecontroller.fullname" . }}
+      {{- with .Values.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+    {{- with .Values.affinity }}
+      affinity:
+        {{- toYaml . | nindent 8 }}
+    {{- end }}
+    {{- with .Values.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+    {{- end }}
+{{- end }}

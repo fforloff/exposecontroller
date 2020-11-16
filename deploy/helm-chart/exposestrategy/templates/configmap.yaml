@@ -1,0 +1,41 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: exposecontroller
+data:
+  config.yml: |-
+{{- if kindIs "invalid" .Values.watchNamespaces }}
+    watch_current_namespace: true
+{{- else }}
+    watch_current_namespace: false
+    watch_namespaces: {{ .Values.watchNamespaces | quote }}
+{{- end }}
+{{- if .Values.config.exposer }}
+    exposer: {{ .Values.config.exposer  }}
+{{- end }}
+{{- if .Values.config.domain }}
+    domain: {{ .Values.config.domain }}
+{{- end }}
+{{- if .Values.config.internalDomain }}
+    internal-domain: {{ .Values.config.internalDomain }}
+{{- end }}
+{{- if .Values.config.pathMode }}
+    path-mode: {{ .Values.config.pathMode }}
+{{- end }}
+{{- if .Values.config.ingressClass }}
+    ingress-class: {{ .Values.config.ingressClass }}
+{{- end }}
+{{- if .Values.config.urltemplate }}
+    urltemplate: {{ .Values.config.urltemplate | quote }}
+{{- end }}
+    http: {{ .Values.config.http | default true }}
+    tls-acme: {{ .Values.config.tlsacme | default false  }}
+{{- if .Values.config.tlsSecretName }}
+    tls-secret-name: {{ .Values.config.tlsSecretName }}
+{{- end }}
+{{- if .Values.config.tlsUseWildcard }}
+    tls-use-wildcard: {{ .Values.config.tlsUseWildcard }}
+{{- end }}
+{{- if .Values.config.extravalues }}
+{{ toYaml .Values.config.extravalues | indent 4 }}
+{{- end }}

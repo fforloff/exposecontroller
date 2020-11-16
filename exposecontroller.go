@@ -160,7 +160,7 @@ func main() {
 	//watchNamespaces := metav1.NamespaceAll
 	watchNamespaces := controllerConfig.WatchNamespaces
 	if controllerConfig.WatchCurrentNamespace {
-		if len(currentNamespace) == 0 {
+		if currentNamespace == "" {
 			klog.Fatalf("No current namespace found!")
 		}
 		watchNamespaces = currentNamespace

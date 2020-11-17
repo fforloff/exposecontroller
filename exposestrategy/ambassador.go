@@ -34,7 +34,7 @@ type AmbassadorStrategy struct {
 func NewAmbassadorStrategy(client kubernetes.Interface, config *Config) (ExposeStrategy, error) {
 
 	var err error
-	if len(config.Domain) == 0 {
+	if config.Domain == "" {
 		config.Domain, err = getAutoDefaultDomain(client)
 		if err != nil {
 			return nil, errors.Wrap(err, "failed to get a domain")

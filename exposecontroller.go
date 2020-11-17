@@ -133,7 +133,7 @@ func main() {
 	} else {
 		klog.Infof("Loaded config file %s", *configFile)
 	}
-	klog.Infof("Config file before overrides %s", controllerConfig.String())
+	klog.Infof("Config file before overrides\n%s", controllerConfig.String())
 
 	if *domain != "" {
 		controllerConfig.Domain = *domain
@@ -157,7 +157,7 @@ func main() {
 		controllerConfig.Services = strings.Split(*services, ",")
 	}
 
-	klog.Infof("Config file after overrides %s", controllerConfig.String())
+	klog.Infof("Config file after overrides\n%s", controllerConfig.String())
 
 	//watchNamespaces := metav1.NamespaceAll
 	watchNamespaces := controllerConfig.WatchNamespaces
@@ -208,11 +208,11 @@ func tryFindConfig(kubeClient kubernetes.Interface, ns string) *controller.Confi
 			klog.Infof("Loaded ConfigMap exposecontroller to load configuration!")
 		}
 	} else {
-		klog.Warningf("Could not find ConfigMap exposecontroller ConfigMap in namespace %s", ns)
+		klog.Warningf("Could not find ConfigMap exposecontroller ConfigMap in namespace %s: %s", ns, err)
 
 		cm, err = kubeClient.CoreV1().ConfigMaps(ns).Get("ingress-config", metav1.GetOptions{})
 		if err != nil {
-			klog.Warningf("Could not find ConfigMap ingress-config ConfigMap in namespace %s", ns)
+			klog.Warningf("Could not find ConfigMap ingress-config ConfigMap in namespace %s: %s", ns, err)
 		} else {
 			klog.Infof("Loaded ConfigMap ingress-config to load configuration!")
 			data := cm.Data

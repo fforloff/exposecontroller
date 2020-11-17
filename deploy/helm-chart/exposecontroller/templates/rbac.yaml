@@ -30,8 +30,8 @@ rules:
   resources: ["ingresses"]
   verbs: ["get", "list", "create", "update", "delete"]
 - apiGroups: [""]
-  resources: ["nodes"]
-  verbs: ["list"]
+  resources: ["nodes", "namespaces"]
+  verbs: ["get", "list"]
 ---
 {{- if $cluster }}
 kind: ClusterRoleBinding

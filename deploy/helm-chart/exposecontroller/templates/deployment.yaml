@@ -1,4 +1,7 @@
 {{- if .Values.daemon -}}
+  {{- if .Values.clean -}}
+   {{- fail "Cannot clean in daemon mode" -}}
+  {{- end -}}
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -8,10 +11,13 @@ metadata:
     helm.sh/chart: {{ include "exposecontroller.chart" . }}
     app.kubernetes.io/instance: {{ .Release.Name }}
     app.kubernetes.io/managed-by: {{ .Release.Service }}
-{{- if .Values.Annotations }}
+  {{- if .Values.annotations }}
   annotations:
-{{ toYaml .Values.Annotations | indent 4 }}
-{{- end }}
+    {{- toYaml .Values.Annotations | nindent 4 }}
+  {{- else if .Values.Annotations }}
+  annotations:
+    {{- toYaml .Values.Annotations | nindent 4 }}
+  {{- end }}
 spec:
   replicas: 1
   selector:
@@ -31,9 +37,9 @@ spec:
         command:
         - /exposecontroller
         - --daemon
-{{- range .Values.Args }}
+        {{- range (coalesce .Values.args .Values.Args) }}
         - {{ . | quote }}
-{{- end }}
+        {{- end }}
         env:
         - name: KUBERNETES_NAMESPACE
           valueFrom:
@@ -57,12 +63,12 @@ spec:
       nodeSelector:
         {{- toYaml . | nindent 8 }}
       {{- end }}
-    {{- with .Values.affinity }}
+      {{- with .Values.affinity }}
       affinity:
         {{- toYaml . | nindent 8 }}
-    {{- end }}
-    {{- with .Values.tolerations }}
+      {{- end }}
+      {{- with .Values.tolerations }}
       tolerations:
         {{- toYaml . | nindent 8 }}
-    {{- end }}
+      {{- end }}
 {{- end }}

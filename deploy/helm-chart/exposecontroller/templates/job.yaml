@@ -8,10 +8,13 @@ metadata:
     helm.sh/chart: {{ include "exposecontroller.chart" . }}
     app.kubernetes.io/instance: {{ .Release.Name }}
     app.kubernetes.io/managed-by: {{ .Release.Service }}
-{{- if .Values.Annotations }}
+  {{- if .Values.annotations }}
   annotations:
-{{ toYaml .Values.Annotations | indent 4 }}
-{{- end }}
+    {{- toYaml .Values.Annotations | nindent 4 }}
+  {{- else if .Values.Annotations }}
+  annotations:
+    {{- toYaml .Values.Annotations | nindent 4 }}
+  {{- end }}
 spec:
   template:
     metadata:
@@ -25,9 +28,12 @@ spec:
         imagePullPolicy: {{ .Values.image.pullPolicy }}
         command:
         - /exposecontroller
-{{- range .Values.Args }}
+        {{- if .Values.clean }}
+        - --clean
+        {{- end }}
+        {{- range (coalesce .Values.args .Values.Args) }}
         - {{ . | quote }}
-{{- end }}
+        {{- end }}
         env:
         - name: KUBERNETES_NAMESPACE
           valueFrom:
@@ -39,12 +45,13 @@ spec:
       {{- with .Values.nodeSelector }}
       nodeSelector:
         {{- toYaml . | nindent 8 }}
-    {{- with .Values.affinity }}
+      {{- end }}
+      {{- with .Values.affinity }}
       affinity:
         {{- toYaml . | nindent 8 }}
-    {{- end }}
-    {{- with .Values.tolerations }}
+      {{- end }}
+      {{- with .Values.tolerations }}
       tolerations:
         {{- toYaml . | nindent 8 }}
-    {{- end }}
+      {{- end }}
 {{- end }}

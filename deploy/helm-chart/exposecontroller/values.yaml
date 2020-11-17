@@ -12,7 +12,9 @@ fullnameOverride: ""
 timeout: null
 resyncPeriod: null
 daemon: false
+clean: false
 watchNamespaces: null
+watchCurrentNamespace: null
 
 resources:
   limits:
@@ -22,11 +24,12 @@ resources:
     cpu: 100m
     memory: 128Mi
 
-Annotations: {}
-Args: []
-
+annotations: {}
+args: []
 nodeSelector: {}
-
 tolerations: []
-
 affinity: {}
+
+# old format, with uppercase for some reason
+Args: []
+Annotations: {}

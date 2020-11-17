@@ -1,4 +1,12 @@
-{{- if kindIs "invalid" .Values.watchNamespaces -}}
+{{- $cluster := not (kindIs "invalid" .Values.watchNamespaces) -}}
+{{- if kindIs "invalid" .Values.watchCurrentNamespace -}}
+{{- else if and $cluster .Values.watchCurrentNamespace -}}
+  {{- fail "Must either watch the current namespace or specific namespaces" -}}
+{{- else -}}
+  {{- $cluster = not .Values.watchCurrentNamespace -}}
+{{- end -}}
+
+{{- if $cluster -}}
 kind: ClusterRole
 {{- else -}}
 kind: Role
@@ -21,8 +29,11 @@ rules:
 - apiGroups: ["extensions"]
   resources: ["ingresses"]
   verbs: ["get", "list", "create", "update", "delete"]
+- apiGroups: [""]
+  resources: ["nodes"]
+  verbs: ["list"]
 ---
-{{- if kindIs "invalid" .Values.watchNamespaces }}
+{{- if $cluster }}
 kind: ClusterRoleBinding
 {{- else }}
 kind: RoleBinding
@@ -42,7 +53,7 @@ roleRef:
 subjects:
   - kind: ServiceAccount
     name: {{ include "exposecontroller.fullname" . }}
-{{- if kindIs "invalid" .Values.watchNamespaces }}
+{{- if $cluster }}
     namespace: {{ .Release.Namespace }}
 {{- end }}
 ---

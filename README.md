@@ -7,9 +7,9 @@ This is a fork from the dead project https://github.com/jenkins-x/exposecontroll
 ## Differences with the original project
 
 - Update everything: the project was based on a very old version of golang and kubernetes, it didn't even have go mod.
-- Give up openshift: the openshift library hasn't been updated for 2 years, so give up it's support
+- Give up openshift: the openshift library hasn't been updated for 2 years, so give up it's support.
 - Test everything: there was almost no test, and definitely nothing critical was tested. Yes, something that is supposed to make public all your services was not tested.
-- Fix various bugs everywhere in the code
+- Fix various bugs everywhere in the code.
 - Fix several severe bugs in `ingress` exposer:
   - ingresses were not properly updated when already existing, especially TLS configuration was not updated
   - the `fabric8.io/ingress.annotations` annotation was parsed using split, so spaces would be kept, an extra newline would result in panic, and it was impossible to set a multiline annotation
@@ -179,7 +179,10 @@ There is an [example](https://github.com/jenkins-x/fabric8-devops/blob/master/go
 Ingress controllers can be configured to provide a basic auth challange on ingress rules.  [Jenkins X](https://jenkins-x.io/) comes with and nginx ingress controller with this enabled out of the box using the default installation admin credentials.  To expose an ingress rule using this basic auth challange with exposecontroller you need to add the following expose annotations to your service:
 
 ```yaml
-fabric8.io/ingress.annotations: "kubernetes.io/ingress.class: nginx\nnginx.ingress.kubernetes.io/auth-type: basic\nnginx.ingress.kubernetes.io/auth-secret: jx-basic-auth"
+fabric8.io/ingress.annotations: |-
+  kubernetes.io/ingress.class: nginx
+  nginx.ingress.kubernetes.io/auth-type: basic
+  nginx.ingress.kubernetes.io/auth-secret: jx-basic-auth
 ```
 
 #### Injecting into ConfigMap entries

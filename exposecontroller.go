@@ -30,6 +30,8 @@ var (
 	configFile = flag.String("config", "/etc/exposecontroller/config.yml",
 		`Path to the file that contains the exposecontroller configuration to use`)
 
+	KubeConfig = flag.String("kube-config", "", "path to Kubernetes config file")
+
 	resyncPeriod = flag.Duration("sync-period", 30*time.Minute,
 		`Relist and confirm services this often.`)
 
@@ -61,12 +63,12 @@ func main() {
 
 	var restClientConfig *rest.Config
 	var err error
-	if *configFile == "" {
+	if *KubeConfig == "" {
 		klog.Infof("using in-cluster configuration")
 		restClientConfig, err = rest.InClusterConfig()
 	} else {
-		klog.Infof("using configuration from '%s'", *configFile)
-		restClientConfig, err = clientcmd.BuildConfigFromFlags("", *configFile)
+		klog.Infof("using configuration from '%s'", *KubeConfig)
+		restClientConfig, err = clientcmd.BuildConfigFromFlags("", *KubeConfig)
 	}
 	if err != nil {
 		klog.Fatalf("failed to create REST client config: %s", err)

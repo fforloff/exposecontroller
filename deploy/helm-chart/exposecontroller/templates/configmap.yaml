@@ -2,7 +2,8 @@
 apiVersion: v1
 kind: ConfigMap
 metadata:
-  name: {{ include "exposecontroller.fullname" . }}
+  # name: {{ include "exposecontroller.fullname" . }}
+  name: exposecontroller
   labels:
     app.kubernetes.io/name: {{ include "exposecontroller.name" . }}
     helm.sh/chart: {{ include "exposecontroller.chart" . }}

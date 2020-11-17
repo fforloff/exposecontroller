@@ -47,7 +47,11 @@ metadata:
     app.kubernetes.io/instance: {{ .Release.Name }}
     app.kubernetes.io/managed-by: {{ .Release.Service }}
 roleRef:
+  {{- if $cluster }}
   kind: ClusterRole
+  {{- else }}
+  kind: Role
+  {{- end }}
   name: {{ include "exposecontroller.fullname" . }}
   apiGroup: rbac.authorization.k8s.io
 subjects:

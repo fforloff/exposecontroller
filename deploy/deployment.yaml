@@ -1,19 +1,33 @@
-apiVersion: extensions/v1beta1
+apiVersion: apps/v1
 kind: Deployment
 metadata:
   name: exposecontroller
   namespace: kube-system
+  labels:
+    app.kubernetes.io/name: exposecontroller
 spec:
   replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: exposecontroller
   template:
     metadata:
       labels:
-        app: exposecontroller
+        app.kubernetes.io/name: exposecontroller
     spec:
-      serviceAccountName: exposecontroller
       containers:
       - name: exposecontroller
-        image: olliai/exposecontroller:latest
+        image: "exposecontroller:latest"
+        command:
+        - /exposecontroller
+        - --daemon
+        - --watch-current-namespace
+        - "false"
+        env:
+        - name: KUBERNETES_NAMESPACE
+          valueFrom:
+            fieldRef:
+              fieldPath: metadata.namespace
         ports:
         - name: health
           containerPort: 10254
@@ -28,7 +42,8 @@ spec:
         resources:
           limits:
             cpu: 100m
-            memory: 256Mi
+            memory: 128Mi
           requests:
             cpu: 100m
-            memory: 256Mi
+            memory: 128Mi
+      serviceAccountName: exposecontroller

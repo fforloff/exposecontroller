@@ -1,24 +1,15 @@
-{{- $current := .Values.watchCurrentNamespace -}}
-{{- if kindIs "invalid" .Values.watchCurrentNamespace -}}
-  {{- $current = kindIs "invalid" .Values.watchNamespaces -}}
-{{- end -}}
-
+{{- if .Values.config }}
 apiVersion: v1
 kind: ConfigMap
 metadata:
-  name: exposecontroller
+  name: {{ include "exposecontroller.fullname" . }}
+  labels:
+    app.kubernetes.io/name: {{ include "exposecontroller.name" . }}
+    helm.sh/chart: {{ include "exposecontroller.chart" . }}
+    app.kubernetes.io/instance: {{ .Release.Name }}
+    app.kubernetes.io/managed-by: {{ .Release.Service }}
 data:
   config.yml: |-
-  {{- if $current }}
-    watch_current_namespace: true
-  {{- else if kindIs "slice" .Values.watchNamespaces }}
-    watch_current_namespace: false
-    watch_namespaces: {{ .Values.watchNamespaces | join "," | quote }}
-  {{- else }}
-    watch_current_namespace: false
-    watch_namespaces: {{ default "" .Values.watchNamespaces | quote }}
-  {{- end }}
-{{- if .Values.config }}
   {{- if .Values.config.exposer }}
     exposer: {{ .Values.config.exposer  }}
   {{- end }}

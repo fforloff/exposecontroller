@@ -2,6 +2,12 @@
   {{- if .Values.clean -}}
    {{- fail "Cannot clean in daemon mode" -}}
   {{- end -}}
+
+  {{- $current := .Values.watchCurrentNamespace -}}
+  {{- if kindIs "invalid" .Values.watchCurrentNamespace -}}
+    {{- $current = kindIs "invalid" .Values.watchNamespaces -}}
+  {{- end -}}
+
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -37,6 +43,15 @@ spec:
         command:
         - /exposecontroller
         - --daemon
+        {{- if $current }}
+        - --watch-current-namespace
+        {{- else if kindIs "slice" .Values.watchNamespaces }}
+        - --watch-namespaces
+        - {{ .Values.watchNamespaces | join "," | quote }}
+        {{- else }}
+        - --watch-namespaces
+        - {{ default "" .Values.watchNamespaces | quote }}
+        {{- end }}
         {{- range (coalesce .Values.args .Values.Args) }}
         - {{ . | quote }}
         {{- end }}

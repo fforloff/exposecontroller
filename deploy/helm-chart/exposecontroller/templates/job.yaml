@@ -1,4 +1,10 @@
 {{- if not .Values.daemon -}}
+
+  {{- $current := .Values.watchCurrentNamespace -}}
+  {{- if kindIs "invalid" .Values.watchCurrentNamespace -}}
+    {{- $current = kindIs "invalid" .Values.watchNamespaces -}}
+  {{- end -}}
+
 apiVersion: batch/v1
 kind: Job
 metadata:
@@ -28,6 +34,15 @@ spec:
         imagePullPolicy: {{ .Values.image.pullPolicy }}
         command:
         - /exposecontroller
+        {{- if $current }}
+        - --watch-current-namespace
+        {{- else if kindIs "slice" .Values.watchNamespaces }}
+        - --watch-namespaces
+        - {{ .Values.watchNamespaces | join "," | quote }}
+        {{- else }}
+        - --watch-namespaces
+        - {{ default "" .Values.watchNamespaces | quote }}
+        {{- end }}
         {{- if .Values.clean }}
         - --clean
         {{- end }}

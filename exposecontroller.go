@@ -47,7 +47,7 @@ var (
 	filter                = flag.String("filter", "", "The filter of service names to look for when cleaning up")
 	exposer               = flag.String("exposer", "", "Which strategy exposecontroller should use to access applications")
 	httpb                 = flag.Bool("http", false, `Use HTTP`)
-	watchNamespaces       = flag.String("watch-namespace", "", "Exposecontroller will only look at the provided namespace")
+	watchNamespaces       = flag.String("watch-namespaces", "", "Exposecontroller will only look at the provided namespace")
 	watchCurrentNamespace = flag.Bool("watch-current-namespace", true, `Exposecontroller will look at the current namespace only - (default: 'true' unless --watch-namespace specified)`)
 	services              = flag.String("services", "", "List of comma separated service names which will be exposed, if empty all services from namespace will be considered")
 )

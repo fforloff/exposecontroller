@@ -37,6 +37,9 @@ data:
   {{- if .Values.config.tlsUseWildcard }}
     tls-use-wildcard: {{ .Values.config.tlsUseWildcard }}
   {{- end }}
+  {{- if .Values.config.namePrefix }}
+    name-prefix: {{ .Values.config.namePrefix }}
+  {{- end }}
   {{- if .Values.config.extravalues }}
     {{- toYaml .Values.config.extravalues | nindent 4 }}
   {{- end }}

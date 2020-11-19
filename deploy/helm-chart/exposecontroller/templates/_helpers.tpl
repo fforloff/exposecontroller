@@ -29,7 +29,3 @@ Create chart name and version as used by the chart label.
 {{- define "exposecontroller.chart" -}}
   {{- printf "%s-%s" .Chart.Name .Chart.Version | replace "+" "_" | trunc 63 | trimSuffix "-" -}}
 {{- end -}}
-
-{{- define "exposecontroller.prefix" -}}
-  {{- coalesce .Values.annotationsPrefix .Values.fullnameOverride .Values.nameOverride .Chart.Name | trimSuffix "/" | trunc 253 | trimSuffix "-" | trimSuffix "." | quote -}}
-{{- end -}}

@@ -148,12 +148,3 @@ metadata:
         prefix: "ROOT_URL = "
         expression: url
 ```
-
-## Getting started
-
-### Ingress name
-
-The ingress URL uses the service name that contains the `expose` annotation, if you want this to be a different name then annotate the service:
-```sh
-kubectl annotate svc foo fabric8.io/ingress.name=bar
-```

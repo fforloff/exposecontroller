@@ -4,6 +4,30 @@ Automatically expose services creating ingress rules or modifying services to us
 
 This is a fork from the dead project https://github.com/jenkins-x/exposecontroller in order to solve many problems
 
+## Deployment
+
+### From helm repository
+
+```shellsession
+$ helm repo add olli-ai https://olli-ai.github.io/helm-charts/
+$ helm upgrade --install exposecontroller olli-ai/exposecontroller
+```
+
+### Using Helm
+
+```shellsession
+$ helm upgrade --install exposecontroller ./deploy/helm-chart/exposecontroller
+```
+
+### Manual
+
+```shellsession
+$ # Create roles and service accounts
+$ kubectl apply -f https://raw.githubusercontent.com/olli-ai/exposecontroller/master/deploy/rbac.yaml
+$ # Create actual deployment
+$ kubectl apply -f https://raw.githubusercontent.com/olli-ai/exposecontroller/master/deploy/deployment.yaml
+```
+
 ## Differences with the original project
 
 - Update everything: the project was based on a very old version of golang and kubernetes, it didn't even have go mod.

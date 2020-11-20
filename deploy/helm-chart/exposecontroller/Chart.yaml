@@ -1,6 +1,6 @@
 apiVersion: v1
-appVersion: v1.0.1
+appVersion: v1.0.2
 name: exposecontroller
 description: Controller for automatically exposing services
-version: 1.0.1
+version: 1.0.2
 url: https://github.com/olli-ai/exposecontroller

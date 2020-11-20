@@ -257,7 +257,7 @@ func updateRelatedResources(c kubernetes.Interface, svc *v1.Service, config *Con
 	updateServiceConfigMap(c, svc, config)
 
 	exposeURL := svc.Annotations[exposestrategy.ExposeAnnotationKey]
-	if len(exposeURL) > 0 {
+	if exposeURL != "" {
 		updateOtherConfigMaps(c, svc, config, exposeURL)
 	}
 }
@@ -292,9 +292,9 @@ func updateServiceConfigMap(c kubernetes.Interface, svc *v1.Service, config *Con
 
 		clusterIP := svc.Spec.ClusterIP
 		if clusterIP != "" {
-			clusterIPKey := firstMapValue(ExposeConfigClusterIPKeyAnnotation, svc.Annotations, cm.Annotations)
-			clusterIPPortKey := firstMapValue(ExposeConfigClusterIPPortKeyAnnotation, svc.Annotations, cm.Annotations)
-			clusterIPPortIfEmptyKey := firstMapValue(ExposeConfigClusterIPPortIfEmptyKeyAnnotation, svc.Annotations, cm.Annotations)
+			clusterIPKey := cm.Annotations[ExposeConfigClusterIPKeyAnnotation]
+			clusterIPPortKey := cm.Annotations[ExposeConfigClusterIPPortKeyAnnotation]
+			clusterIPPortIfEmptyKey := cm.Annotations[ExposeConfigClusterIPPortIfEmptyKeyAnnotation]
 
 			if clusterIPKey != "" {
 				if cm.Data[clusterIPKey] != clusterIP {
@@ -356,13 +356,13 @@ func updateServiceConfigMap(c kubernetes.Interface, svc *v1.Service, config *Con
 				klog.Infof("Found key %s and has path %s\n", pathKey, path)
 			}
 
-			configYamlS := svc.Annotations[ExposeConfigYamlAnnotation]
+			configYamlS := cm.Annotations[ExposeConfigYamlAnnotation]
 			if configYamlS != "" {
-				fmt.Printf("Processing yaml config on service %s\n", svc.Name)
+				fmt.Printf("Processing yaml config on configMap %s\n", cm.Name)
 				configs := []configYaml{}
 				err := yaml.Unmarshal([]byte(configYamlS), &configs)
 				if err != nil {
-					klog.Errorf("Failed to unmarshal Config YAML on service %s due to %s : YAML: %s", svc.Name, err, configYamlS)
+					klog.Errorf("Failed to unmarshal Config YAML on configMap %s due to %s : YAML: %s", cm.Name, err, configYamlS)
 				} else {
 					values := map[string]string{
 						"host":              host,
@@ -408,19 +408,6 @@ func urlPath(urlText string) string {
 	return answer
 }
 
-// firstMapValue returns the first value in the map which is not empty
-func firstMapValue(key string, maps ...map[string]string) string {
-	for _, m := range maps {
-		if m != nil {
-			v := m[key]
-			if v != "" {
-				return v
-			}
-		}
-	}
-	return ""
-}
-
 func (c *configYaml) updateConfigMap(configMap *v1.ConfigMap, values map[string]string) bool {
 	key := c.Key
 	if key == "" {
@@ -463,6 +450,7 @@ func updateOtherConfigMaps(c kubernetes.Interface, svc *v1.Service, config *Conf
 	annotationNoProtocolKey := "expose-no-protocol.service-key.config.fabric8.io/" + serviceName
 	annotationNoPathKey := "expose-no-path.service-key.config.fabric8.io/" + serviceName
 	annotationFullNoProtocolKey := "expose-full-no-protocol.service-key.config.fabric8.io/" + serviceName
+	annotationProtocolKey := "expose-protocol.service-key.config.fabric8.io/" + serviceName
 	ns := svc.Namespace
 	cms, err := c.CoreV1().ConfigMaps(ns).List(metav1.ListOptions{})
 	if err != nil {
@@ -474,7 +462,7 @@ func updateOtherConfigMaps(c kubernetes.Interface, svc *v1.Service, config *Conf
 		if cm.Data == nil {
 			cm.Data = map[string]string{}
 		}
-		if len(updateKey) > 0 {
+		if updateKey != "" {
 			exposeURL = strings.TrimSuffix(exposeURL, "/")
 			keys := strings.Split(updateKey, ",")
 			for _, key := range keys {
@@ -487,7 +475,7 @@ func updateOtherConfigMaps(c kubernetes.Interface, svc *v1.Service, config *Conf
 			}
 		}
 		updateKey = cm.Annotations[annotationFullKey]
-		if len(updateKey) > 0 {
+		if updateKey != "" {
 			if !strings.HasSuffix(exposeURL, "/") {
 				exposeURL += "/"
 			}
@@ -505,7 +493,7 @@ func updateOtherConfigMaps(c kubernetes.Interface, svc *v1.Service, config *Conf
 		if cm.Data == nil {
 			cm.Data = map[string]string{}
 		}
-		if len(updateKey) > 0 {
+		if updateKey != "" {
 			u, err := url.Parse(exposeURL)
 			if err != nil {
 				klog.Warningf("Failed to parse URL %s due to %s", exposeURL, err)
@@ -527,7 +515,7 @@ func updateOtherConfigMaps(c kubernetes.Interface, svc *v1.Service, config *Conf
 		if cm.Data == nil {
 			cm.Data = map[string]string{}
 		}
-		if len(updateKey) > 0 {
+		if updateKey != "" {
 			exposeURL = strings.TrimSuffix(exposeURL, "/")
 			exposeURL = strings.TrimPrefix(exposeURL, "http://")
 			exposeURL = strings.TrimPrefix(exposeURL, "https://")
@@ -542,7 +530,7 @@ func updateOtherConfigMaps(c kubernetes.Interface, svc *v1.Service, config *Conf
 			}
 		}
 		updateKey = cm.Annotations[annotationFullNoProtocolKey]
-		if len(updateKey) > 0 {
+		if updateKey != "" {
 			if !strings.HasSuffix(exposeURL, "/") {
 				exposeURL += "/"
 			}
@@ -558,8 +546,8 @@ func updateOtherConfigMaps(c kubernetes.Interface, svc *v1.Service, config *Conf
 				}
 			}
 		}
-		updateKey = cm.Annotations[ExposeConfigURLProtocol]
-		if len(updateKey) > 0 {
+		updateKey = cm.Annotations[annotationProtocolKey]
+		if updateKey != "" {
 			protocol := "https"
 			if config.HTTP {
 				protocol = "http"

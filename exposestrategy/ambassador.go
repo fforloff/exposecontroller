@@ -149,7 +149,7 @@ func (s *AmbassadorStrategy) Add(svc *v1.Service) error {
 	klog.Infof("Exposing Port %d of Service %s", servicePort, svc.Name)
 
 	clone := svc.DeepCopy()
-	if tlsSecretName != "" {
+	if !s.http && tlsSecretName != "" {
 		err = addServiceAnnotationWithProtocol(clone, hostName, path, "https")
 	} else {
 		err = addServiceAnnotationWithProtocol(clone, hostName, path, "http")

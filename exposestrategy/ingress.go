@@ -351,7 +351,7 @@ func (s *IngressStrategy) Add(svc *v1.Service) error {
 	}
 	// build the patch for the service annotations
 	clone := svc.DeepCopy()
-	if tlsSecretName != "" {
+	if !s.http && tlsSecretName != "" {
 		err = addServiceAnnotationWithProtocol(clone, hostName, path, "https")
 	} else {
 		err = addServiceAnnotationWithProtocol(clone, hostName, path, "http")

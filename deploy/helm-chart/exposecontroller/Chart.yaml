@@ -1,6 +1,17 @@
 apiVersion: v1
 appVersion: v1.0.2
 name: exposecontroller
-description: Controller for automatically exposing services
+description: Controller for automatically exposing services. A more stable version of Jenkins-X exposecontroller.
 version: 1.0.2
 url: https://github.com/olli-ai/exposecontroller
+home: https://github.com/olli-ai/exposecontroller
+sources:
+- https://github.com/olli-ai/exposecontroller
+keywords:
+- jenkins-x
+- exposecontroller
+- expose
+- ingress
+maintainers:
+- name: aure-olli
+  email: aure@olli-ai.com

@@ -233,15 +233,15 @@ func registerHandlers(controller cache.Controller) {
 		ready := controller.HasSynced()
 
 		if ready {
-			res.WriteHeader(http.StatusServiceUnavailable)
-		} else {
 			res.WriteHeader(http.StatusOK)
+			enc := json.NewEncoder(res)
+			_ = enc.Encode(map[string]interface{}{
+				"ready": ready,
+			})
+		} else {
+			res.WriteHeader(http.StatusServiceUnavailable)
 		}
 
-		enc := json.NewEncoder(res)
-		_ = enc.Encode(map[string]interface{}{
-			"ready": ready,
-		})
 	})
 
 	if *profiling {
